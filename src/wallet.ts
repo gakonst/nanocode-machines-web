@@ -1,13 +1,18 @@
 import { Mach, Mount, Provider, tempoWallet } from "accounts";
 import { KeyAuthorization } from "ox/tempo";
-import { type Address, type Hex, toHex } from "viem";
+import { type Address, encodeFunctionData, type Hash, type Hex, isAddressEqual, toHex } from "viem";
 import { generatePrivateKey } from "viem/accounts";
-import { Account, Actions, createClient, http, KeyAuthorizationManager } from "viem/tempo";
+import { prepareTransactionRequest, sendRawTransactionSync, signTransaction } from "viem/actions";
+import { Abis, Account, Actions, createClient, http } from "viem/tempo";
 import { tempo } from "viem/tempo/chains";
 
 export const mach = Mach.token;
 
+export const usdc = { address: "0x20c000000000000000000000b9537d11c60e8b50", symbol: "USDC.e" } as const;
+
 export const allowance = 2_000_000n;
+
+export const feeAllowance = 100_000n;
 
 export const lifetime = 86_400;
 
@@ -52,7 +57,8 @@ export function restore(): Wallet | undefined {
   const saved = localStorage.getItem(storageKey);
   if (!saved) return undefined;
   const parsed = JSON.parse(saved) as Wallet;
-  if (parsed.expiry * 1000 > Date.now()) return parsed;
+  const fees = parsed.authorization.limits?.some(limit => isAddressEqual(limit.token, usdc.address));
+  if (parsed.expiry * 1000 > Date.now() && fees) return parsed;
   localStorage.removeItem(storageKey);
   return undefined;
 }
@@ -66,7 +72,7 @@ export async function connect(): Promise<Wallet> {
     chainId: toHex(tempo.id),
     expiry,
     keyType: "secp256k1",
-    limits: [{ limit: toHex(allowance), token: mach.address }],
+    limits: [{ limit: toHex(allowance), token: mach.address }, { limit: toHex(feeAllowance), token: usdc.address }],
     publicKey: access.publicKey,
     scopes: [
       { address: mach.address, selector: selectors.transferWithMemo },
@@ -86,6 +92,31 @@ export async function connect(): Promise<Wallet> {
   return connected;
 }
 
+export async function published(connected: Wallet) {
+  const metadata = await Actions.accessKey.getMetadata(reader(), { accessKey: connected.keyAddress, account: connected.address });
+  return isAddressEqual(metadata.address, connected.keyAddress) && !metadata.isRevoked;
+}
+
+export async function publish(connected: Wallet): Promise<Hash | undefined> {
+  if (await published(connected)) return undefined;
+  const client = reader();
+  const account = signer(connected);
+  const request = await prepareTransactionRequest(client, {
+    account,
+    calls: [{ data: encodeFunctionData({ abi: Abis.tip20, args: [swapper, 0n], functionName: "approve" }), to: mach.address }],
+    feeToken: usdc.address,
+    keyAuthorization: KeyAuthorization.fromRpc(connected.authorization),
+    nonceKey: "expiring",
+  } as never);
+  const receipt = await sendRawTransactionSync(client, { serializedTransaction: await signTransaction(client, request as never) });
+  if (receipt.status !== "success") throw new Error(`Tempo did not accept the key (transaction ${receipt.transactionHash}).`);
+  return receipt.transactionHash;
+}
+
+export async function revoke(connected: Wallet) {
+  await wallet().request({ method: "wallet_revokeAccessKey", params: [{ accessKeyAddress: connected.keyAddress, address: connected.address, chainId: toHex(tempo.id) }] } as never);
+}
+
 export function forget() {
   localStorage.removeItem(storageKey);
 }
@@ -94,22 +125,22 @@ export function fund(connected: Wallet) {
   return Mach.fund(wallet(), { address: connected.address, displayName: "nanocode machines" });
 }
 
-export async function signer(connected: Wallet) {
-  const keyAuthorizationManager = KeyAuthorizationManager.memory();
-  await keyAuthorizationManager.set({ accessKey: connected.keyAddress, address: connected.address, chainId: tempo.id }, KeyAuthorization.fromRpc(connected.authorization));
-  return Account.fromSecp256k1(connected.key, { access: connected.address, keyAuthorizationManager });
+export function signer(connected: Wallet) {
+  return Account.fromSecp256k1(connected.key, { access: connected.address });
 }
 
 export async function balances(connected: Wallet) {
   const client = reader();
-  const [balance, remaining] = await Promise.all([
+  const [balance, fees, remaining] = await Promise.all([
     Actions.token.getBalance(client, { account: connected.address, token: mach.address }),
-    Actions.accessKey.getMetadata(client, { accessKey: connected.keyAddress, account: connected.address }).then(
-      metadata => metadata.isRevoked || metadata.expiry === 0n ? allowance : Actions.accessKey.getRemainingLimit(client, { accessKey: connected.keyAddress, account: connected.address, token: mach.address }).then(limit => limit.remaining),
-      () => allowance,
-    ),
+    Actions.token.getBalance(client, { account: connected.address, token: usdc.address }),
+    Actions.accessKey.getRemainingLimit(client, { accessKey: connected.keyAddress, account: connected.address, token: mach.address }).then(limit => limit.remaining, () => allowance),
   ]);
-  return { balance: balance.amount, remaining };
+  return { balance: balance.amount, fees: fees.amount, remaining };
+}
+
+export function short(value: string) {
+  return `${value.slice(0, 6)}…${value.slice(-4)}`;
 }
 
 export function format(atomics: bigint) {

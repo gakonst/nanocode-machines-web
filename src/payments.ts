@@ -12,8 +12,8 @@ export type Service = { calls: number; charges: readonly { amount: bigint; at: n
 
 export type Ledger = { calls: number; services: readonly Service[]; total: bigint };
 
-export async function create(connected: Wallet.Wallet) {
-  const account = await Wallet.signer(connected);
+export function create(connected: Wallet.Wallet) {
+  const account = Wallet.signer(connected);
   const client = Wallet.reader();
   const prefix = `nanocode.machines.${connected.keyAddress.toLowerCase()}.`;
   let ledger: Ledger = { calls: 0, services: [], total: 0n };
@@ -130,4 +130,4 @@ export async function create(connected: Wallet.Wallet) {
   };
 }
 
-export type Payments = Awaited<ReturnType<typeof create>>;
+export type Payments = ReturnType<typeof create>;
