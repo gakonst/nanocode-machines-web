@@ -30,6 +30,7 @@ export function Terminal() {
   const [typing, setTyping] = useState(false);
   const [status, setStatus] = useState("");
   const [highlight, setHighlight] = useState(0);
+  const [device, setDevice] = useState<Wallet.Prompt>();
   const agent = useRef<Agent.Agent | undefined>(undefined);
   const log = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -43,6 +44,8 @@ export function Terminal() {
   function note(kind: Entry["kind"], text: string) {
     setEntries(entries => [...entries, { done: true, kind, text }]);
   }
+
+  useEffect(() => Wallet.onPrompt(setDevice), []);
 
   useEffect(() => {
     const saved = Wallet.restore();
@@ -94,7 +97,7 @@ export function Terminal() {
     if (connected) return note("tool", `Already logged in as ${Wallet.short(connected.address)}. Type /logout first to use another wallet.`);
     let pending = Wallet.restore();
     if (!pending) {
-      note("tool", "Opening Tempo Wallet. Approve the key with your passkey.");
+      note("tool", Wallet.framed() ? "X's player cannot show Tempo Wallet, so Tempo Wallet gives you a code instead. Open the link below in a new tab or on your phone, and approve the key with your passkey." : "Opening Tempo Wallet. Approve the key with your passkey.");
       pending = await Wallet.connect();
       note("tool", `Tempo Wallet approved key ${Wallet.short(pending.keyAddress)} for ${Wallet.short(pending.address)}: ${limits}, at ${until(pending)}.`);
     }
@@ -148,6 +151,7 @@ export function Terminal() {
     } catch (error) {
       note("error", Machines.explain(error).message);
     }
+    setDevice(undefined);
     setWorking(false);
   }
 
@@ -210,6 +214,12 @@ export function Terminal() {
         {working && !typing && <><span className="speaker speaker-agent">wallet</span> is working</>}
       </p>
 
+      {device && (
+        <p className="device">
+          Approve in Tempo Wallet: <a href={device.verificationUriFull ?? device.verificationUri} rel="noreferrer" target="_blank">{(device.verificationUriFull ?? device.verificationUri).replace(/^https:\/\//, "")}</a> · code <b>{device.userCode}</b>
+        </p>
+      )}
+
       {payments && <Spend payments={payments} window={Payments.window} />}
 
       {choices.length > 0 && (
@@ -271,7 +281,10 @@ export function Terminal() {
         ))}
       </div>
 
-      <p className="status"><span>{connected ? `${status} · ${Wallet.short(connected.address)}` : "not logged in · /login"}</span></p>
+      <p className="status">
+        <span>{connected ? `${status} · ${Wallet.short(connected.address)}` : "not logged in · /login"}</span>
+        <a className="site" href="https://nanocode.xyz/" rel="noreferrer" target="_blank">nanocode.xyz →</a>
+      </p>
     </section>
   );
 }

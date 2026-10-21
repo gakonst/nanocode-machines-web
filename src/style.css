@@ -296,3 +296,16 @@ code, kbd, pre, samp { font: inherit; font-feature-settings: inherit; }
 .picker-choice[aria-selected="true"] .picker-label { color: var(--accent); font-variation-settings: "wght" 700; }
 
 .picker-detail { color: var(--middle); overflow: hidden; padding-left: var(--cell); text-overflow: ellipsis; }
+
+.device { border-top: 1px solid var(--rule); margin: 0; padding: 0.5rem 1rem; }
+
+.device b { color: var(--accent); font-variation-settings: "wght" 700; font-weight: normal; }
+
+.site { display: none; }
+
+[data-xframe] .site { display: inline; }
+
+[data-xframe] .chat { inset: 0; position: fixed; z-index: 200; }
+
+[data-xframe] .log { flex: 1; height: auto; min-height: 0; }
+

@@ -1,4 +1,5 @@
 import { Mach, Provider, tempoWallet } from "accounts";
+import { tempoWallet as deviceWallet } from "accounts/deviceCode";
 import { KeyAuthorization } from "ox/tempo";
 import { type Address, encodeFunctionData, type Hash, type Hex, isAddressEqual, toHex } from "viem";
 import { generatePrivateKey } from "viem/accounts";
@@ -42,10 +43,36 @@ export type Wallet = {
   keyAddress: Address;
 };
 
+export type Prompt = { userCode: string; verificationUri: string; verificationUriFull: string | undefined };
+
 let provider: ReturnType<typeof Provider.create> | undefined;
 
+let prompt: (prompt: Prompt) => void = () => {};
+
+export function framed() {
+  return document.documentElement.hasAttribute("data-xframe");
+}
+
+export function onPrompt(listener: (prompt: Prompt) => void) {
+  prompt = listener;
+  return () => {
+    prompt = () => {};
+  };
+}
+
+function relay(input: RequestInfo | URL, init?: RequestInit) {
+  const url = String(input instanceof Request ? input.url : input);
+  const device = "https://wallet.tempo.xyz/api/auth/device/";
+  return fetch(url.startsWith(device) ? new URL(`api/device/${url.slice(device.length)}`, location.href) : input, init);
+}
+
 function wallet() {
-  provider ??= Provider.create({ adapter: tempoWallet(), mpp: false });
+  provider ??= Provider.create({
+    adapter: framed()
+      ? deviceWallet({ fetch: relay as typeof fetch, meta: { name: "nanocode machines", websiteUrl: "https://nanocode.xyz/machines/" }, onPrompt: next => prompt(next) })
+      : tempoWallet(),
+    mpp: false,
+  });
   return provider;
 }
 
