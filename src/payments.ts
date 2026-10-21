@@ -8,6 +8,8 @@ const maxDeposit = "0.5";
 
 export const window = 30_000;
 
+const send = globalThis.fetch.bind(globalThis);
+
 export type Service = { calls: number; charges: readonly { amount: bigint; at: number }[]; name: string; spent: bigint };
 
 export type Ledger = { calls: number; services: readonly Service[]; total: bigint };
@@ -74,7 +76,7 @@ export function create(connected: Wallet.Wallet) {
 
   const mppx = Mppx.create({
     fetch: async (input, init) => {
-      const response = await fetch(input, init);
+      const response = await send(input, init);
       const origin = new URL(response.url || String(input)).origin;
       const header = response.headers.get("payment-receipt");
       if (header) receipt(origin, atob(header.replace(/-/g, "+").replace(/_/g, "/")), true);

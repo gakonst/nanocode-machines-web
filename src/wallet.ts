@@ -1,4 +1,4 @@
-import { Mach, Mount, Provider, tempoWallet } from "accounts";
+import { Mach, Provider, tempoWallet } from "accounts";
 import { KeyAuthorization } from "ox/tempo";
 import { type Address, encodeFunctionData, type Hash, type Hex, isAddressEqual, toHex } from "viem";
 import { generatePrivateKey } from "viem/accounts";
@@ -45,7 +45,7 @@ export type Wallet = {
 let provider: ReturnType<typeof Provider.create> | undefined;
 
 function wallet() {
-  provider ??= Provider.create({ adapter: tempoWallet({ mount: Mount.popup() }) });
+  provider ??= Provider.create({ adapter: tempoWallet(), mpp: false });
   return provider;
 }
 
