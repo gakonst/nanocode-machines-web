@@ -1,14 +1,13 @@
-import { type Entry, liveEvent, Transcript } from "nanocode-ts/client";
-import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { createConfig, type Entry, liveEvent } from "nanocode-ts/client";
+import { Chat, NanocodeProvider, useConfig, useSend } from "nanocode-ts/react";
+import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import type * as Agent from "./agent.ts";
 import * as Cloud from "./cloud.ts";
 import * as Machines from "./machines.ts";
 import * as Payments from "./payments.ts";
-import { Reply } from "./Reply.tsx";
 import { Spend } from "./Spend.tsx";
+import * as styles from "./styles.ts";
 import * as Wallet from "./wallet.ts";
-
-type Shown = Entry & { done: boolean };
 
 const commands = [
   { detail: "connect Tempo Wallet and approve a key that pays for this agent", label: "/login" },
@@ -25,54 +24,96 @@ const entriesKey = "nanocode.machines.entries";
 
 const localKey = "nanocode.machines.local";
 
-function saved(): Shown[] {
-  try {
-    return JSON.parse(localStorage.getItem(entriesKey) ?? "[]") as Shown[];
-  } catch {
-    return [];
-  }
-}
+const highlight = () => import("nanocode-ts/highlight").then(module => module.highlight);
 
 const limits = `at most ${amount(Wallet.allowance)} MACH, plus ${amount(Wallet.feeAllowance)} ${Wallet.usdc.symbol} for fees, until it expires a day later`;
 
+type Runtime = { agent?: Agent.Agent; cloud?: Cloud.Cloud };
+
 export function Terminal() {
+  const [setup] = useState(() => {
+    const runtime: Runtime = { cloud: Cloud.restore() };
+    const config = createConfig({
+      persist: {
+        load: () => {
+          try {
+            return JSON.parse(localStorage.getItem(entriesKey) ?? "[]") as Entry[];
+          } catch {
+            return [];
+          }
+        },
+        save: entries => localStorage.setItem(entriesKey, JSON.stringify(entries.slice(-300))),
+      },
+      keep: 300,
+      revealMs: 0,
+      transport: {
+        async send({ prompt, push, note }) {
+          if (runtime.cloud) return Cloud.ask(runtime.cloud, prompt, handlers(push, note));
+          if (!runtime.agent) throw new Error("The agent is still loading.");
+          if (!(await runtime.agent.ask(prompt))) throw new Error("The turn has no result.");
+        },
+        async steer({ prompt, note }) {
+          if (runtime.cloud) {
+            if (await Cloud.steer(runtime.cloud, prompt) === "steered") return true;
+            note("tool", "The turn is finishing; ask again in a moment.");
+            return false;
+          }
+          return await runtime.agent?.steer(prompt) === "steered";
+        },
+        async resume({ push, note }) {
+          const saved = Cloud.restore();
+          if (!saved?.open) return;
+          note("tool", "Reconnecting to the turn that kept running in the cloud while this tab was closed.");
+          await Cloud.resume(saved, handlers(push, note));
+        },
+      },
+    });
+    return { config, runtime };
+  });
+
+  return (
+    <NanocodeProvider config={setup.config} highlight={highlight}>
+      <Terminal.Agent runtime={setup.runtime} />
+    </NanocodeProvider>
+  );
+}
+
+function handlers(push: (event: NonNullable<ReturnType<typeof liveEvent>>) => void, note: (kind: Entry["kind"], text: string) => void): Cloud.Handlers {
+  return {
+    event: logged => {
+      const event = liveEvent(logged);
+      if (event) push(event);
+    },
+    interrupted: () => note("tool", "The session's Durable Object reset. Its alarm started it again, and the turn continues from its checkpoint."),
+  };
+}
+
+Terminal.Agent = function Agent(props: { runtime: Runtime }) {
+  const { runtime } = props;
+  const config = useConfig();
+  const { send, isPending: busy } = useSend();
+  const note = config.note;
   const [connected, setConnected] = useState<Wallet.Wallet>();
-  const [entries, setEntries] = useState<readonly Shown[]>(saved);
-  const [live, setLive] = useState<Shown | undefined>();
-  const [prompt, setPrompt] = useState("");
   const [ready, setReady] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [working, setWorking] = useState(false);
-  const [typing, setTyping] = useState(false);
   const [status, setStatus] = useState("");
-  const [highlight, setHighlight] = useState(0);
   const [device, setDevice] = useState<Wallet.Prompt>();
   const [checkout, setCheckout] = useState<{ address: string; url: string }>();
-  const [cloud, setCloud] = useState<Cloud.Cloud | undefined>(() => Cloud.restore());
-  const agent = useRef<Agent.Agent | undefined>(undefined);
-  const log = useRef<HTMLDivElement>(null);
-  const input = useRef<HTMLTextAreaElement>(null);
-  const transcript = useMemo(() => new Transcript({
-    add: entry => setEntries(entries => [...entries, { ...entry, done: true }]),
-    live: entry => setLive(entry ? { ...entry, done: false } : undefined),
-    revealMs: 0,
-  }), []);
+  const [cloud, setCloudState] = useState<Cloud.Cloud | undefined>(runtime.cloud);
   const payments = useMemo(() => connected && Payments.create(connected), [connected]);
   const metered = useMemo(() => cloud && Cloud.meter(cloud), [cloud?.token]);
 
-  function note(kind: Entry["kind"], text: string) {
-    setEntries(entries => [...entries, { done: true, kind, text }]);
+  function setCloud(next: Cloud.Cloud | undefined) {
+    runtime.cloud = next;
+    setCloudState(next);
   }
 
   useEffect(() => Wallet.onPrompt(setDevice), []);
 
   useEffect(() => {
-    localStorage.setItem(entriesKey, JSON.stringify(entries.slice(-300)));
-  }, [entries]);
-
-  useEffect(() => {
-    const restored = entries.length > 0;
+    const restored = config.getState().entries.length > 0;
     const saved = Wallet.restore();
+    void config.resume();
     if (!saved) return note("tool", `Not logged in. Type /login to connect your Tempo Wallet. It asks you to approve a key that this page keeps and pays with, ${limits}, and only for payments. The agent then pays for its own model and every service it calls.`);
     void Wallet.published(saved).then(onChain => {
       if (!onChain) return note("tool", "Tempo Wallet approved a key earlier, but it is not on Tempo yet. Type /login to publish it.");
@@ -88,53 +129,26 @@ export function Terminal() {
     const { fetch: pay, model } = Machines.agent(payments);
     setStatus("Loading nanocode-ts…");
     void import("./agent.ts")
-      .then(module => module.create({ fetch: pay, instructions: Machines.instructions, model, onEvent: entry => {
-        const event = liveEvent(entry);
-        if (event) transcript.push(event);
+      .then(module => module.create({ fetch: pay, instructions: Machines.instructions, model, onEvent: logged => {
+        const event = liveEvent(logged);
+        if (event) config.push(event);
       } }))
       .then(created => {
         if (disposed) return void created.dispose();
-        agent.current = created;
+        runtime.agent = created;
         setReady(true);
         setStatus(summary(created));
       }, (error: unknown) => setStatus(`The agent could not start: ${message(error)}`));
     return () => {
       disposed = true;
       setReady(false);
-      void agent.current?.dispose();
-      agent.current = undefined;
+      void runtime.agent?.dispose();
+      runtime.agent = undefined;
     };
-  }, [payments, transcript]);
-
-  useEffect(() => () => transcript.reset(), [transcript]);
-
-  const handlers: Cloud.Handlers = {
-    event: logged => {
-      const event = liveEvent(logged);
-      if (event) transcript.push(event);
-    },
-    interrupted: () => note("tool", "The session's Durable Object reset. Its alarm started it again, and the turn continues from its checkpoint."),
-  };
+  }, [payments]);
 
   useEffect(() => {
-    const saved = Cloud.restore();
-    if (!saved?.open) return;
-    note("tool", "Reconnecting to the turn that kept running in the cloud while this tab was closed.");
-    setBusy(true);
-    void Cloud.resume(saved, handlers).catch((error: unknown) => note("error", message(error))).finally(() => {
-      setLive(undefined);
-      setBusy(false);
-    });
-  }, []);
-
-  useEffect(() => {
-    log.current?.scrollTo({ top: log.current.scrollHeight });
-  }, [entries, live]);
-
-  useEffect(() => {
-    if (!busy) return setTyping(false);
-    const timer = setTimeout(() => setTyping(true), 500);
-    return () => clearTimeout(timer);
+    if (!busy && runtime.agent) setStatus(summary(runtime.agent));
   }, [busy]);
 
   async function login() {
@@ -175,18 +189,14 @@ export function Terminal() {
     localStorage.removeItem(localKey);
     const current = Cloud.restore();
     if (current) return note("tool", `Running in the cloud as session ${current.session}. Type /local to run in this tab.`);
-    const enabled = await Cloud.enable(account);
-    setCloud(enabled);
+    setCloud(await Cloud.enable(account));
     note("tool", "The agent runs in the cloud, in a Durable Object with subagents and a workspace, paid from your key within its limit until it expires: this site's Worker keeps the key encrypted. Refresh or close the tab whenever you like; the turn keeps going and this page reconnects to it. Type /local to run in this tab instead, or /logout to revoke the key everywhere.");
   }
 
   function clear() {
-    transcript.reset();
-    setLive(undefined);
-    setEntries([]);
+    config.clear();
     if (cloud) {
-      const next = Cloud.renew(cloud);
-      setCloud(next);
+      setCloud(Cloud.renew(cloud));
       note("tool", "New session. The previous one's files stay in the cloud.");
     } else note("tool", "Cleared.");
   }
@@ -232,8 +242,6 @@ export function Terminal() {
 
   async function command(text: string) {
     setCheckout(undefined);
-    setPrompt("");
-    setHighlight(0);
     note("user", text);
     const name = text.split(/\s/)[0];
     setWorking(true);
@@ -253,164 +261,44 @@ export function Terminal() {
     setWorking(false);
   }
 
-  async function ask(text: string) {
-    if (!text) return;
-    if (text.startsWith("/")) return command(text);
-    const current = agent.current;
-    setPrompt("");
-    note("user", text);
-    if (!connected) return note("error", "Log in first: type /login.");
-    if (cloud) {
-      if (busy) {
-        try {
-          note("tool", await Cloud.steer(cloud, text) === "steered" ? "steered into the running turn" : "The turn is finishing; ask again in a moment.");
-        } catch (error) {
-          note("error", message(error));
-        }
-        return;
-      }
-      setBusy(true);
-      try {
-        await Cloud.ask(cloud, text, handlers);
-      } catch (error) {
-        note("error", message(error));
-      }
-      setLive(undefined);
-      setBusy(false);
-      return;
+  function submit(text: string) {
+    if (text.startsWith("/")) return void command(text);
+    if (!connected) {
+      note("user", text);
+      return note("error", "Log in first: type /login.");
     }
-    if (!current) return note("tool", "The agent is still loading.");
-    if (busy) {
-      try {
-        if (await current.steer(text) === "steered") note("tool", "steered into the running turn");
-      } catch (error) {
-        note("error", message(error));
-      }
-      return;
+    if (!cloud && !runtime.agent) {
+      note("user", text);
+      return note("tool", "The agent is still loading.");
     }
-    setBusy(true);
-    try {
-      if (!(await current.ask(text))) throw new Error("The turn has no result.");
-    } catch (error) {
-      note("error", message(error));
-    }
-    setLive(undefined);
-    setBusy(false);
-    setStatus(summary(current));
+    void send(text);
   }
 
-  const query = /^\/\S*$/.test(prompt) ? prompt : undefined;
-  const choices = query === undefined ? [] : commands.filter(entry => entry.label.startsWith(query));
-  const highlighted = Math.min(highlight, Math.max(0, choices.length - 1));
-  const shown = live ? [...entries, live] : entries;
   return (
-    <section
-      aria-label="Agent"
-      className="chat"
-      onClick={event => {
-        const target = event.target as HTMLElement;
-        if (target.closest("a, button, input, textarea") || getSelection()?.toString()) return;
-        input.current?.focus();
-      }}
-    >
-      <div aria-live="polite" className="log" ref={log}>
-        {shown.map((entry, index) => {
-          const previous = shown[index - 1];
-          const label = entry.kind === "user" ? "you" : !previous || previous.kind === "user" ? "agent" : undefined;
-          return (
-            <div className="turn" key={index}>
-              {label && <p className={`speaker speaker-${label}`}><span aria-hidden="true">●</span> {label}</p>}
-              <div className={`entry entry-${entry.kind}${entry.done ? "" : " entry-live"}`}>{entry.kind === "assistant" ? <Reply text={entry.text} /> : entry.kind === "reasoning" ? entry.text.replace(/\*\*(.+?)\*\*/g, "$1") : entry.text}</div>
-            </div>
-          );
-        })}
-      </div>
-
-      <p aria-live="polite" className={typing || working ? "typing typing-visible" : "typing"}>
-        {typing && <><span className="speaker speaker-agent">agent</span> {live?.kind === "reasoning" ? "is thinking" : "is typing"}</>}
-        {working && !typing && <><span className="speaker speaker-agent">wallet</span> is working</>}
-      </p>
-
-      {device && (
-        <p className="device">
-          Approve in Tempo Wallet: <a href={device.verificationUriFull ?? device.verificationUri} onClick={open} rel="noreferrer" target="_blank">{(device.verificationUriFull ?? device.verificationUri).replace(/^https:\/\//, "")}</a> · code <b>{device.userCode}</b>
-        </p>
-      )}
-
-      {checkout && (
-        <p className="device">
-          Buy MACH in Tempo Wallet: <a href={checkout.url} onClick={open} rel="noreferrer" target="_blank">checkout for {Wallet.short(checkout.address)}</a>
-        </p>
-      )}
-
-      {metered ? <Spend payments={metered} window={Payments.window} /> : payments && <Spend payments={payments} window={Payments.window} />}
-
-      {choices.length > 0 && (
-        <div aria-label="Commands" className="picker" role="listbox">
-          {choices.map((entry, index) => (
-            <button aria-selected={index === highlighted} className="picker-choice" key={entry.label} onClick={() => void ask(entry.label)} onMouseMove={() => setHighlight(index)} role="option" style={{ gridTemplateColumns: "2ch 8ch auto" }} type="button">
-              <span className="picker-marker">{index === highlighted ? "›" : ""}</span>
-              <span className="picker-label">{entry.label}</span>
-              <span className="picker-detail">{entry.detail}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="row">
-        <span aria-hidden="true" className="chevron">❯</span>
-        <textarea
-          aria-label="Prompt"
-          className="input"
-          onChange={event => {
-            setPrompt(event.target.value);
-            setHighlight(0);
-          }}
-          onKeyDown={event => {
-            if (choices.length > 0) {
-              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                event.preventDefault();
-                setHighlight(Math.min(Math.max(0, highlighted + (event.key === "ArrowDown" ? 1 : -1)), choices.length - 1));
-                return;
-              }
-              if (event.key === "Tab") {
-                event.preventDefault();
-                setPrompt(choices[highlighted]!.label);
-                return;
-              }
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void ask(choices[highlighted]!.label);
-                return;
-              }
-            }
-            if (event.key !== "Enter" || event.shiftKey) return;
-            event.preventDefault();
-            void ask(prompt.trim());
-          }}
-          placeholder={!connected ? "Type /login to connect your Tempo Wallet" : busy ? "Steer the running turn" : "Ask the agent, or type / for commands"}
-          ref={input}
-          rows={1}
-          value={prompt}
-        />
-        <button className="send" onClick={() => void ask(prompt.trim())} type="button">
-          <kbd className="key">ENTER</kbd>
-        </button>
-      </div>
-
-      <div className="suggestions">
-        {(connected ? Machines.suggestions : ["/login"]).map(suggestion => (
-          <button className="suggestion" disabled={working || (!!connected && ((!ready && !cloud) || busy))} key={suggestion} onClick={() => void ask(suggestion)} type="button">{suggestion}</button>
-        ))}
-      </div>
-
-      <p className="status">
-        <span>{connected ? `${cloud ? "cloud · gpt-6-luna" : status} · ${Wallet.short(connected.address)}` : "not logged in · /login"}</span>
-        <a className="site" href="https://nanocode.xyz/" rel="noreferrer" target="_blank">nanocode.xyz →</a>
-      </p>
-    </section>
+    <Chat
+      activity={working && !busy ? { who: "wallet", text: "is working" } : undefined}
+      commands={commands}
+      extras={<>
+        {device && (
+          <p {...styles.device()}>
+            Approve in Tempo Wallet: <a href={device.verificationUriFull ?? device.verificationUri} onClick={open} rel="noreferrer" target="_blank">{(device.verificationUriFull ?? device.verificationUri).replace(/^https:\/\//, "")}</a> · code <b>{device.userCode}</b>
+          </p>
+        )}
+        {checkout && (
+          <p {...styles.device()}>
+            Buy MACH in Tempo Wallet: <a href={checkout.url} onClick={open} rel="noreferrer" target="_blank">checkout for {Wallet.short(checkout.address)}</a>
+          </p>
+        )}
+        {metered ? <Spend payments={metered} window={Payments.window} /> : payments && <Spend payments={payments} window={Payments.window} />}
+      </>}
+      link={{ href: "https://nanocode.xyz/", label: "nanocode.xyz →" }}
+      onSubmit={submit}
+      placeholder={!connected ? "Type /login to connect your Tempo Wallet" : undefined}
+      status={connected ? `${cloud ? "cloud · gpt-6-luna" : status} · ${Wallet.short(connected.address)}` : "not logged in · /login"}
+      suggestions={(connected ? Machines.suggestions : ["/login"]).map(suggestion => ({ label: suggestion, onClick: () => submit(suggestion), disabled: working || (!!connected && ((!ready && !cloud) || busy)) }))}
+    />
   );
-}
+};
 
 function summary(agent: Agent.Agent) {
   const { requests, rows } = agent.stats();
