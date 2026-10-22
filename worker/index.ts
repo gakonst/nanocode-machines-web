@@ -1,4 +1,4 @@
-import { createNanocode } from "nanocode-cloudflare-durable";
+import { createNanocode } from "nanocode-ts/cloudflare";
 import { type Address, isAddressEqual, isHex } from "viem";
 import { Account, Actions, createClient, http } from "viem/tempo";
 import { tempo } from "viem/tempo/chains";
