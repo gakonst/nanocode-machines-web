@@ -1,12 +1,12 @@
 import { createConfig, type Entry, liveEvent } from "nanocode-ts/client";
 import { Chat, NanocodeProvider, useConfig, useSend } from "nanocode-ts/react";
-import "nanocode-ts/react/styles.css";
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import type * as Agent from "./agent.ts";
 import * as Cloud from "./cloud.ts";
 import * as Machines from "./machines.ts";
 import * as Payments from "./payments.ts";
 import { Spend } from "./Spend.tsx";
+import * as styles from "./styles.ts";
 import * as Wallet from "./wallet.ts";
 
 const commands = [
@@ -280,12 +280,12 @@ Terminal.Agent = function Agent(props: { runtime: Runtime }) {
       commands={commands}
       extras={<>
         {device && (
-          <p className="device">
+          <p {...styles.device()}>
             Approve in Tempo Wallet: <a href={device.verificationUriFull ?? device.verificationUri} onClick={open} rel="noreferrer" target="_blank">{(device.verificationUriFull ?? device.verificationUri).replace(/^https:\/\//, "")}</a> · code <b>{device.userCode}</b>
           </p>
         )}
         {checkout && (
-          <p className="device">
+          <p {...styles.device()}>
             Buy MACH in Tempo Wallet: <a href={checkout.url} onClick={open} rel="noreferrer" target="_blank">checkout for {Wallet.short(checkout.address)}</a>
           </p>
         )}
