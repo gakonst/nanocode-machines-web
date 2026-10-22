@@ -1,12 +1,10 @@
 import type { NanocodeEnv } from "nanocode-cloudflare-durable";
-import type { WorkerLoader } from "nanocode-ts/cloudflare";
 import type { Wallet } from "./wallet.ts";
 
 export interface Env extends NanocodeEnv {
   WALLETS: DurableObjectNamespace<Wallet>;
   KEY_SECRET: string;
   ASSETS: Fetcher;
-  LOADER: WorkerLoader;
 }
 
 export function wallet(env: Env, account: string) {
