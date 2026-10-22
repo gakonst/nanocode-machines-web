@@ -4,6 +4,7 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-21",
   "assets": { "binding": "ASSETS", "directory": "./dist" },
+  "worker_loaders": [{ "binding": "LOADER" }],
   "durable_objects": {
     "bindings": [
       { "name": "SESSIONS", "class_name": "AgentSession" },

@@ -1,5 +1,5 @@
 import sqlite3InitModule, { type Database } from "@sqlite.org/sqlite-wasm";
-import { AgentRuntime, type HostTool, type LoggedEvent, sessionUuid, type SqlHost, type SqlValue, type TurnReport } from "nanocode-ts";
+import { AgentRuntime, LocalHand, type LoggedEvent, sessionUuid, type SqlHost, type SqlValue, type TurnReport } from "nanocode-ts";
 import wasm from "nanocode-ts/nanocode_wasm.wasm?url";
 
 const scope = "machines";
@@ -16,11 +16,10 @@ export type Model = {
 };
 
 export type Options = {
-  call: (name: string, input: unknown) => Promise<unknown>;
+  fetch: typeof fetch;
   instructions: string;
   model: Model;
   onEvent: (event: LoggedEvent) => void;
-  tools: readonly HostTool[];
 };
 
 export type Agent = {
@@ -32,7 +31,7 @@ export type Agent = {
 };
 
 export async function create(options: Options): Promise<Agent> {
-  const { call, instructions, model, onEvent, tools } = options;
+  const { instructions, model, onEvent } = options;
   compiled ??= WebAssembly.compileStreaming(fetch(wasm));
   const [module, sqlite3] = await Promise.all([compiled, sqlite3InitModule()]);
   const database = new sqlite3.oo1.DB(":memory:", "c");
@@ -43,6 +42,7 @@ export async function create(options: Options): Promise<Agent> {
   });
   await runtime.open(
     {
+      code_mode: true,
       endpoint: model.endpoint,
       event_coalesce_ms: 50,
       instructions,
@@ -53,9 +53,8 @@ export async function create(options: Options): Promise<Agent> {
       subagents: model.subagents,
       subscription: false,
       thinking: model.thinking,
-      tools: [...tools],
     },
-    { dispatch: (request, signal) => model.dispatch(request, signal), tools: { call } },
+    { dispatch: (request, signal) => model.dispatch(request, signal), remote: new LocalHand({ fetch: options.fetch }) },
   );
 
   async function submit(prompt: string) {

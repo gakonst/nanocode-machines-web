@@ -1,8 +1,6 @@
 import type { HostTool, HostToolCall } from "nanocode-cloudflare-durable";
 import { type Env, wallet } from "./env.ts";
 
-const PAID = /^https:\/\/([a-z0-9-]+\.mpp\.tempo\.xyz|gateway\.tempo-dev\.workers\.dev)(\/|$)/;
-const PREVIEW = 4_000;
 const FETCH_PREVIEW = 20_000;
 const SECRET = /\{\{([A-Z_][A-Z0-9_]{0,63})\}\}/g;
 
@@ -11,13 +9,8 @@ const path = { type: "string", description: "A workspace path, such as notes/pla
 
 const definitions: HostTool[] = [
   {
-    name: "pay",
-    description: "Sends HTTPS requests to Tempo's paid MPP services (https://<name>.mpp.tempo.xyz, and the Tempo gateway at https://gateway.tempo-dev.workers.dev), paid from the account's Tempo Wallet in MACH, and returns each response's status, type, time and the opening of its body. Requests in one call run at the same time. Services include rpc (Tempo JSON-RPC), openrouter (chat completions over many models), firecrawl (web scraping: POST /v1/scrape {url, formats:[\"markdown\"]}), storage, fal (images), and speech.",
-    parameters: object({ requests: { type: "array", minItems: 1, items: object({ url: { type: "string" }, method: { type: "string", enum: ["GET", "POST", "PUT", "DELETE"] }, body: { type: "string" }, content_type: { type: "string" } }, ["url", "method"]) } }, ["requests"]),
-  },
-  {
     name: "http",
-    description: "Sends one unpaid HTTPS request and returns its status, type and up to 20,000 characters of its body. Header values may name the account's secrets as {{NAME}}; the list_secrets tool gives their names, never their values.",
+    description: "Sends one unpaid HTTPS request with the account's secrets and returns its status, type and up to 20,000 characters of its body. Header values may name the account's secrets as {{NAME}}; the list_secrets tool gives their names, never their values.",
     parameters: object({ url: { type: "string" }, method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE"] }, headers: { type: "object", additionalProperties: { type: "string" } }, body: { type: "string" } }, ["url", "method"]),
   },
   { name: "list_secrets", description: "The names of the secrets the account stored for the http tool.", parameters: object({}) },
@@ -45,21 +38,6 @@ async function read(response: Response, limit: number) {
   return { type, bytes: (await response.arrayBuffer()).byteLength };
 }
 
-type Request = { url?: string; method?: string; body?: string; content_type?: string };
-
-async function pay(env: Env, account: string, request: Request, signal: AbortSignal) {
-  const { url = "", method = "GET", body, content_type } = request;
-  if (!PAID.test(url)) return { url, error: "pay only reaches https://<name>.mpp.tempo.xyz and the Tempo gateway" };
-  const started = Date.now();
-  const headers: [string, string][] = body === undefined ? [] : [["content-type", content_type ?? "application/json"]];
-  try {
-    const response = await wallet(env, account).fetch(new Request("https://wallet.internal/pay", { method: "POST", body: body ?? null, signal, headers: { "x-target": url, "x-method": method, "x-headers": JSON.stringify(headers) } }));
-    return { url, status: response.status, ms: Date.now() - started, ...(await read(response, PREVIEW)) };
-  } catch (error) {
-    return { url, ms: Date.now() - started, error: error instanceof Error ? error.message : String(error) };
-  }
-}
-
 async function http(env: Env, account: string, input: { url?: string; method?: string; headers?: Record<string, string>; body?: string }, signal: AbortSignal) {
   const url = new URL(String(input.url ?? ""));
   if (url.protocol !== "https:") return { error: "http only sends https requests" };
@@ -83,11 +61,6 @@ async function call(call: HostToolCall, env: Env, signal: AbortSignal): Promise<
   const stub = wallet(env, account);
   try {
     switch (call.name) {
-      case "pay": {
-        const requests = input.requests;
-        if (!Array.isArray(requests) || requests.length === 0) return { error: "requests must list at least one request" };
-        return { responses: await Promise.all(requests.map(request => pay(env, account, request as Request, signal))) };
-      }
       case "http": return await http(env, account, input, signal);
       case "list_secrets": return { names: await stub.secretNames() };
       case "list_files": return { files: await stub.files(session) };
