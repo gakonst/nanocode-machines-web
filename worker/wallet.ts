@@ -147,9 +147,10 @@ export class Wallet extends DurableObject<Env> {
   }
 
   private charge(url: string, amount: bigint) {
-    if (amount <= 0n) return;
+    if (amount === 0n) return;
     const key = `spent:${this.label(url)}`;
-    this.ctx.storage.kv.put(key, (BigInt(this.ctx.storage.kv.get<string>(key) ?? "0") + amount).toString());
+    const total = BigInt(this.ctx.storage.kv.get<string>(key) ?? "0") + amount;
+    this.ctx.storage.kv.put(key, (total > 0n ? total : 0n).toString());
   }
 
   private receipt(url: string, text: string) {
@@ -159,7 +160,6 @@ export class Wallet extends DurableObject<Env> {
     const key = `seen:${parsed.channelId}`;
     const before = BigInt(this.ctx.storage.kv.get<string>(key) ?? "0");
     const spent = BigInt(parsed.spent);
-    if (spent <= before) return;
     this.ctx.storage.kv.put(key, spent.toString());
     this.charge(url, spent - before);
   }

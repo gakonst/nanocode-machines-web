@@ -29,7 +29,7 @@ export function create(connected: Wallet.Wallet) {
   }
 
   function charge(url: string, amount: bigint, paid: boolean) {
-    if (amount <= 0n && !paid) return;
+    if (amount === 0n && !paid) return;
     const host = new URL(url).hostname.split(".")[0] ?? url;
     const description = labels.get(route(url));
     const name = description ? `${host} · ${description}` : host;
@@ -38,9 +38,9 @@ export function create(connected: Wallet.Wallet) {
     const previous = found ?? { calls: 0, charges: [], name, spent: 0n };
     const next: Service = {
       calls: previous.calls + (paid ? 1 : 0),
-      charges: [...previous.charges.filter(item => now - item.at < window), { amount, at: now }],
+      charges: [...previous.charges.filter(item => now - item.at < window), ...(amount > 0n ? [{ amount, at: now }] : [])],
       name,
-      spent: previous.spent + amount,
+      spent: previous.spent + amount > 0n ? previous.spent + amount : 0n,
     };
     ledger = {
       calls: ledger.calls + (paid ? 1 : 0),
@@ -61,8 +61,8 @@ export function create(connected: Wallet.Wallet) {
     const key = `${prefix}spent.${parsed.channelId}`;
     const before = BigInt(localStorage.getItem(key) ?? "0");
     const spent = BigInt(parsed.spent);
-    if (spent > before) localStorage.setItem(key, spent.toString());
-    charge(origin, spent > before ? spent - before : 0n, paid);
+    localStorage.setItem(key, spent.toString());
+    charge(origin, spent - before, paid);
   }
 
   function metered(origin: string, body: ReadableStream<Uint8Array>) {
