@@ -1,4 +1,4 @@
-import type { ModelDispatch, PrivateBinding } from "nanocode-cloudflare-durable";
+import type { ModelDispatch, PrivateBinding } from "nanocode-ts/cloudflare";
 import { type Env, json, wallet } from "./env.ts";
 
 const PROXIES: Record<string, string> = {

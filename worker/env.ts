@@ -1,4 +1,4 @@
-import type { NanocodeEnv } from "nanocode-cloudflare-durable";
+import type { NanocodeEnv } from "nanocode-ts/cloudflare";
 import type { Wallet } from "./wallet.ts";
 
 export interface Env extends NanocodeEnv {

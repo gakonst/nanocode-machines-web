@@ -1,4 +1,5 @@
-import type { HostTool, HostToolCall } from "nanocode-cloudflare-durable";
+import type { HostTool } from "nanocode-ts";
+import type { HostToolCall } from "nanocode-ts/cloudflare";
 import { type Env, wallet } from "./env.ts";
 
 const FETCH_PREVIEW = 20_000;
