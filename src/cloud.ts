@@ -155,7 +155,8 @@ export function meter(cloud: Cloud, interval = 1000) {
         const current = { calls: calls[host] ?? 0, spent: BigInt(spent[host] ?? "0") };
         next[host] = current;
         const before = seen?.[host] ?? { calls: 0, spent: 0n };
-        const name = host.split(".")[0] ?? host;
+        const [domain = host, ...operation] = host.split(" · ");
+        const name = [domain.split(".")[0] ?? domain, ...operation].join(" · ");
         const index = services.findIndex(service => service.name === name);
         const previous = index >= 0 ? services[index]! : { calls: 0, charges: [], name, spent: 0n };
         const amount = current.spent - before.spent;

@@ -126,13 +126,33 @@ export class Wallet extends DurableObject<Env> {
     return this.ctx.storage.kv.delete(`file:${session}:${path}`);
   }
 
-  private charge(origin: string, amount: bigint) {
+  private route(url: string) {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  }
+
+  private label(url: string) {
+    const description = this.ctx.storage.kv.get<string>(`label:${this.route(url)}`);
+    const host = new URL(url).hostname;
+    return description ? `${host} · ${description}` : host;
+  }
+
+  private describe(url: string, description: string | undefined) {
+    if (description) this.ctx.storage.kv.put(`label:${this.route(url)}`, description.slice(0, 80));
+  }
+
+  private count(url: string) {
+    const key = `calls:${this.label(url)}`;
+    this.ctx.storage.kv.put(key, (this.ctx.storage.kv.get<number>(key) ?? 0) + 1);
+  }
+
+  private charge(url: string, amount: bigint) {
     if (amount <= 0n) return;
-    const key = `spent:${new URL(origin).hostname}`;
+    const key = `spent:${this.label(url)}`;
     this.ctx.storage.kv.put(key, (BigInt(this.ctx.storage.kv.get<string>(key) ?? "0") + amount).toString());
   }
 
-  private receipt(origin: string, text: string) {
+  private receipt(url: string, text: string) {
     let parsed: { channelId?: string; intent?: string; spent?: string };
     try { parsed = JSON.parse(text); } catch { return; }
     if (parsed.intent !== "session" || !parsed.channelId || parsed.spent === undefined) return;
@@ -141,10 +161,10 @@ export class Wallet extends DurableObject<Env> {
     const spent = BigInt(parsed.spent);
     if (spent <= before) return;
     this.ctx.storage.kv.put(key, spent.toString());
-    this.charge(origin, spent - before);
+    this.charge(url, spent - before);
   }
 
-  private metered(origin: string, body: ReadableStream<Uint8Array>) {
+  private metered(url: string, body: ReadableStream<Uint8Array>) {
     const decoder = new TextDecoder();
     let buffer = "";
     return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
@@ -156,7 +176,7 @@ export class Wallet extends DurableObject<Env> {
         for (const event of events) {
           if (!/^event: ?payment-receipt$/m.test(event)) continue;
           const data = event.match(/^data: ?(.*)$/m)?.[1];
-          if (data) this.receipt(origin, data);
+          if (data) this.receipt(url, data);
         }
       },
     }));
@@ -173,11 +193,16 @@ export class Wallet extends DurableObject<Env> {
     const mppx = Mppx.create({
       fetch: async (input, init) => {
         const response = await fetch(input, init);
-        const origin = new URL(response.url || String(input)).origin;
+        const url = String(input instanceof Request ? input.url : input);
+        if (response.status === 402) {
+          this.describe(url, response.headers.get("www-authenticate")?.match(/description="([^"]*)"/)?.[1]);
+          return response;
+        }
+        this.count(url);
         const header = response.headers.get("payment-receipt");
-        if (header) this.receipt(origin, atob(header.replace(/-/g, "+").replace(/_/g, "/")));
+        if (header) this.receipt(url, atob(header.replace(/-/g, "+").replace(/_/g, "/")));
         if (!response.body || !response.headers.get("content-type")?.startsWith("text/event-stream")) return response;
-        return new Response(this.metered(origin, response.body), { headers: response.headers, status: response.status, statusText: response.statusText });
+        return new Response(this.metered(url, response.body), { headers: response.headers, status: response.status, statusText: response.statusText });
       },
       methods: [
         payments.session({
@@ -208,9 +233,11 @@ export class Wallet extends DurableObject<Env> {
       polyfill: false,
     });
     mppx.onPaymentResponse(payment => {
+      const url = String(payment.input instanceof Request ? payment.input.url : payment.input);
+      this.describe(url, (payment.challenge as { description?: string }).description);
       if (payment.challenge.intent !== "charge") return;
       const request = payment.challenge.request as { amount?: string };
-      this.charge(new URL(String(payment.input instanceof Request ? payment.input.url : payment.input)).origin, BigInt(request.amount ?? "0"));
+      this.charge(url, BigInt(request.amount ?? "0"));
     });
     this.payer = { fetch: (input, init) => mppx.fetch(input, init as never) };
     return this.payer;
@@ -225,8 +252,6 @@ export class Wallet extends DurableObject<Env> {
     const body = method === "GET" || method === "HEAD" ? undefined : await request.arrayBuffer();
     try {
       const payer = await this.pay();
-      const calls = `calls:${new URL(target).hostname}`;
-      this.ctx.storage.kv.put(calls, (this.ctx.storage.kv.get<number>(calls) ?? 0) + 1);
       return await payer.fetch(target, { method, headers, body, signal: request.signal, context: { depositRaw: OPENING } });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

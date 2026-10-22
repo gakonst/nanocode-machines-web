@@ -21,9 +21,18 @@ export function create(connected: Wallet.Wallet) {
   let ledger: Ledger = { calls: 0, services: [], total: 0n };
   const listeners = new Set<() => void>();
 
-  function charge(origin: string, amount: bigint, paid: boolean) {
+  const labels = new Map<string, string>();
+
+  function route(url: string) {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  }
+
+  function charge(url: string, amount: bigint, paid: boolean) {
     if (amount <= 0n && !paid) return;
-    const name = new URL(origin).hostname.split(".")[0] ?? origin;
+    const host = new URL(url).hostname.split(".")[0] ?? url;
+    const description = labels.get(route(url));
+    const name = description ? `${host} · ${description}` : host;
     const now = Date.now();
     const found = ledger.services.find(service => service.name === name);
     const previous = found ?? { calls: 0, charges: [], name, spent: 0n };
@@ -77,7 +86,9 @@ export function create(connected: Wallet.Wallet) {
   const mppx = Mppx.create({
     fetch: async (input, init) => {
       const response = await send(input, init);
-      const origin = new URL(response.url || String(input)).origin;
+      const origin = String(input instanceof Request ? input.url : input);
+      const description = response.status === 402 ? response.headers.get("www-authenticate")?.match(/description="([^"]*)"/)?.[1] : undefined;
+      if (description) labels.set(route(origin), description.slice(0, 80));
       const header = response.headers.get("payment-receipt");
       if (header) receipt(origin, atob(header.replace(/-/g, "+").replace(/_/g, "/")), true);
       if (!response.body || !response.headers.get("content-type")?.startsWith("text/event-stream")) return response;
@@ -116,7 +127,7 @@ export function create(connected: Wallet.Wallet) {
   mppx.onPaymentResponse(payment => {
     if (payment.challenge.intent !== "charge") return;
     const request = payment.challenge.request as { amount?: string };
-    const origin = new URL(String(payment.input instanceof Request ? payment.input.url : payment.input)).origin;
+    const origin = String(payment.input instanceof Request ? payment.input.url : payment.input);
     charge(origin, BigInt(request.amount ?? "0"), true);
   });
 
