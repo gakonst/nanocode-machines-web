@@ -25,12 +25,21 @@ async function register(request: Request, env: Env): Promise<Response> {
   const body = await request.json().catch(() => undefined) as { address?: string; key_type?: string; private_key?: string } | undefined;
   const address = body?.address;
   const key = body?.private_key;
-  const keyType = body?.key_type === "p256" ? "p256" : body?.key_type === "secp256k1" ? "secp256k1" : undefined;
-  if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address) || !key || !isHex(key) || key.length !== 66 || !keyType) return json({ error: "send {address, key_type: secp256k1 | p256, private_key}" }, 400);
-  const access = keyType === "p256" ? Account.fromP256(key, { access: address as Address }) : Account.fromSecp256k1(key, { access: address as Address });
-  const keyAddress = access.accessKeyAddress;
-  const metadata = await Actions.accessKey.getMetadata(createClient({ chain: tempo, transport: http(RPC) }), { account: address as Address, accessKey: keyAddress });
-  if (!isAddressEqual(metadata.address, keyAddress) || metadata.isRevoked) return json({ error: `key ${keyAddress} is not an active access key of ${address} on Tempo; publish it first` }, 403);
+  const types: ("secp256k1" | "p256")[] = body?.key_type === "p256" ? ["p256"] : body?.key_type === "secp256k1" ? ["secp256k1"] : ["secp256k1", "p256"];
+  if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address) || !key || !isHex(key) || key.length !== 66) return json({ error: "send {address, private_key, key_type?: secp256k1 | p256}" }, 400);
+  const client = createClient({ chain: tempo, transport: http(RPC) });
+  let found: { keyType: "secp256k1" | "p256"; keyAddress: Address; expiry: bigint; spendPolicy: string } | undefined;
+  for (const keyType of types) {
+    const keyAddress = (keyType === "p256" ? Account.fromP256(key, { access: address as Address }) : Account.fromSecp256k1(key, { access: address as Address })).accessKeyAddress;
+    const metadata = await Actions.accessKey.getMetadata(client, { account: address as Address, accessKey: keyAddress }).catch(() => undefined);
+    if (metadata && isAddressEqual(metadata.address, keyAddress) && !metadata.isRevoked) {
+      found = { keyType, keyAddress, expiry: metadata.expiry, spendPolicy: metadata.spendPolicy };
+      break;
+    }
+  }
+  if (!found) return json({ error: `this key is not an active access key of ${address} on Tempo; publish it first` }, 403);
+  const { keyType, keyAddress, spendPolicy } = found;
+  const metadata = { expiry: found.expiry, spendPolicy };
   const expiry = Number(metadata.expiry);
   if (expiry * 1000 <= Date.now()) return json({ error: "the access key has expired" }, 403);
   const record: KeyRecord = { address: address.toLowerCase() as Address, keyAddress, keyType, key, expiry };

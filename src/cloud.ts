@@ -41,12 +41,18 @@ async function failure(response: Response) {
 }
 
 export async function enable(connected: Wallet.Wallet): Promise<Cloud> {
-  const response = await fetch("v1/keys", { body: JSON.stringify({ address: connected.address, key_type: "secp256k1", private_key: connected.key }), headers: { "content-type": "application/json" }, method: "POST" });
+  const response = await fetch("v1/keys", { body: JSON.stringify({ address: connected.address, private_key: connected.key }), headers: { "content-type": "application/json" }, method: "POST" });
   if (!response.ok) throw await failure(response);
   const body = await response.json() as { address: string; expires_at: number; token: string };
   const cloud: Cloud = { address: body.address, cursor: 0, expiresAt: body.expires_at, session: `web-${crypto.randomUUID()}`, token: body.token };
   save(cloud);
   return cloud;
+}
+
+export function renew(cloud: Cloud): Cloud {
+  const next: Cloud = { ...cloud, cursor: 0, open: undefined, session: `web-${crypto.randomUUID()}` };
+  save(next);
+  return next;
 }
 
 export async function status(cloud: Cloud) {

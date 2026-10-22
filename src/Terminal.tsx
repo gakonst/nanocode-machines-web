@@ -16,15 +16,28 @@ const commands = [
   { detail: "buy MACH in Tempo Wallet", label: "/fund" },
   { detail: "run the agent in the cloud: turns keep going after you close the tab", label: "/cloud" },
   { detail: "run the agent in this tab again", label: "/local" },
+  { detail: "clear the conversation and start a new session", label: "/clear" },
   { detail: "revoke the key in Tempo Wallet and forget it here", label: "/logout" },
   { detail: "list the commands", label: "/help" },
 ] as const;
+
+const entriesKey = "nanocode.machines.entries";
+
+const localKey = "nanocode.machines.local";
+
+function saved(): Shown[] {
+  try {
+    return JSON.parse(localStorage.getItem(entriesKey) ?? "[]") as Shown[];
+  } catch {
+    return [];
+  }
+}
 
 const limits = `at most ${amount(Wallet.allowance)} MACH, plus ${amount(Wallet.feeAllowance)} ${Wallet.usdc.symbol} for fees, until it expires a day later`;
 
 export function Terminal() {
   const [connected, setConnected] = useState<Wallet.Wallet>();
-  const [entries, setEntries] = useState<readonly Shown[]>([]);
+  const [entries, setEntries] = useState<readonly Shown[]>(saved);
   const [live, setLive] = useState<Shown | undefined>();
   const [prompt, setPrompt] = useState("");
   const [ready, setReady] = useState(false);
@@ -53,12 +66,18 @@ export function Terminal() {
   useEffect(() => Wallet.onPrompt(setDevice), []);
 
   useEffect(() => {
+    localStorage.setItem(entriesKey, JSON.stringify(entries.slice(-300)));
+  }, [entries]);
+
+  useEffect(() => {
+    const restored = entries.length > 0;
     const saved = Wallet.restore();
     if (!saved) return note("tool", `Not logged in. Type /login to connect your Tempo Wallet. It asks you to approve a key that this page keeps and pays with, ${limits}, and only for payments. The agent then pays for its own model and every service it calls.`);
     void Wallet.published(saved).then(onChain => {
       if (!onChain) return note("tool", "Tempo Wallet approved a key earlier, but it is not on Tempo yet. Type /login to publish it.");
       setConnected(saved);
-      note("tool", `Logged in as ${Wallet.short(saved.address)} with key ${Wallet.short(saved.keyAddress)} until ${until(saved)}. Type /wallet to see your MACH.`);
+      if (!restored) note("tool", `Logged in as ${Wallet.short(saved.address)} with key ${Wallet.short(saved.keyAddress)} until ${until(saved)}. Type /wallet to see your MACH.`);
+      if (!Cloud.restore() && localStorage.getItem(localKey) !== "1") void enableCloud(saved).catch((error: unknown) => note("error", message(error)));
     }, (error: unknown) => note("error", message(error)));
   }, []);
 
@@ -129,6 +148,7 @@ export function Terminal() {
     const hash = await Wallet.publish(pending);
     note("tool", hash ? `The key is on Tempo (transaction ${Wallet.short(hash)}).` : "The key is already on Tempo.");
     setConnected(pending);
+    if (!cloud && localStorage.getItem(localKey) !== "1") await enableCloud(pending);
     const { balance } = await Wallet.balances(pending);
     note("tool", balance === 0n ? "Your wallet holds no MACH yet. Type /fund to buy some." : `Your wallet holds ${Wallet.format(balance)} MACH. Ask anything, or try "${Machines.suggestions[0]}".`);
   }
@@ -149,18 +169,31 @@ export function Terminal() {
     setConnected(undefined);
   }
 
-  async function enableCloud() {
-    if (!connected) return note("tool", "Not logged in. Type /login first.");
-    if (cloud) return note("tool", `Running in the cloud as session ${cloud.session}. Type /local to run in this tab.`);
-    note("tool", "Handing the key to the cloud: this site's Worker keeps it encrypted and pays your agent's model and services with it while turns run, within the key's limit and until it expires. Type /logout to revoke it everywhere.");
-    const enabled = await Cloud.enable(connected);
+  async function enableCloud(account = connected) {
+    if (!account) return note("tool", "Not logged in. Type /login first.");
+    localStorage.removeItem(localKey);
+    const current = Cloud.restore();
+    if (current) return note("tool", `Running in the cloud as session ${current.session}. Type /local to run in this tab.`);
+    const enabled = await Cloud.enable(account);
     setCloud(enabled);
-    note("tool", `Running in the cloud, in a Durable Object with subagents and a workspace. Close the tab whenever you like; the turn keeps going and this page reconnects to it. Session ${enabled.session}.`);
+    note("tool", "The agent runs in the cloud, in a Durable Object with subagents and a workspace, paid from your key within its limit until it expires: this site's Worker keeps the key encrypted. Refresh or close the tab whenever you like; the turn keeps going and this page reconnects to it. Type /local to run in this tab instead, or /logout to revoke the key everywhere.");
+  }
+
+  function clear() {
+    transcript.reset();
+    setLive(undefined);
+    setEntries([]);
+    if (cloud) {
+      const next = Cloud.renew(cloud);
+      setCloud(next);
+      note("tool", "New session. The previous one's files stay in the cloud.");
+    } else note("tool", "Cleared.");
   }
 
   function disableCloud() {
     if (!cloud) return note("tool", "Already running in this tab.");
     Cloud.forget();
+    localStorage.setItem(localKey, "1");
     setCloud(undefined);
     note("tool", "Running in this tab again. The cloud keeps the key until it expires; type /logout to revoke it.");
   }
@@ -210,6 +243,7 @@ export function Terminal() {
       else if (name === "/fund") await fund();
       else if (name === "/cloud") await enableCloud();
       else if (name === "/local") disableCloud();
+      else if (name === "/clear") clear();
       else note("tool", commands.map(entry => `${entry.label.padEnd(8)} ${entry.detail}`).join("\n"));
     } catch (error) {
       note("error", Machines.explain(error).message);

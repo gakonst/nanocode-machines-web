@@ -24,7 +24,7 @@ export function App() {
         </span>
       </p>
       <p className="lead">
-        This agent runs in your browser, the nanocode SDK compiled to WebAssembly, and pays for its own model and every service it calls from your Tempo Wallet in MACH: by the token for the model, by the request for Tempo&apos;s paid APIs, over MPP sessions. Type /login to approve a Tempo access key for it, as the nanocode-mpp CLI logs in with tempo wallet login. Each service keeps a small deposit in its payment channel, which counts against the key&apos;s limit; what a channel does not spend goes back to your wallet when it closes. Its source is <a href="https://github.com/gakonst/nanocode-machines-web">gakonst/nanocode-machines-web</a>.
+        This agent is the nanocode SDK, and it pays for its own model and every service it calls from your Tempo Wallet in MACH: by the token for the model, by the request for Tempo&apos;s paid APIs, over MPP sessions. Type /login to approve a Tempo access key for it, with a spending limit, for a day. It then runs in the cloud, in a Cloudflare Durable Object with subagents, so you can refresh or close this tab and it keeps working; this page reconnects to it. Type /local to keep it, and the key, in your browser instead. Its source is <a href="https://github.com/gakonst/nanocode-machines-web">gakonst/nanocode-machines-web</a>.
       </p>
       <Terminal />
       <p><a href="https://nanocode.xyz/docs/guides/mpp-payments">Read how nanocode-machines pays →</a></p>
