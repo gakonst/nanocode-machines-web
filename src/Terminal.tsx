@@ -1,5 +1,5 @@
 import { type Entry, liveEvent, Transcript } from "nanocode-ts/client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import type * as Agent from "./agent.ts";
 import * as Machines from "./machines.ts";
 import * as Payments from "./payments.ts";
@@ -31,6 +31,7 @@ export function Terminal() {
   const [status, setStatus] = useState("");
   const [highlight, setHighlight] = useState(0);
   const [device, setDevice] = useState<Wallet.Prompt>();
+  const [checkout, setCheckout] = useState<{ address: string; url: string }>();
   const agent = useRef<Agent.Agent | undefined>(undefined);
   const log = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -97,7 +98,7 @@ export function Terminal() {
     if (connected) return note("tool", `Already logged in as ${Wallet.short(connected.address)}. Type /logout first to use another wallet.`);
     let pending = Wallet.restore();
     if (!pending) {
-      note("tool", Wallet.framed() ? "X's player cannot show Tempo Wallet, so Tempo Wallet gives you a code instead. Open the link below in a new tab or on your phone, and approve the key with your passkey." : "Opening Tempo Wallet. Approve the key with your passkey.");
+      note("tool", Wallet.framed() ? "X's player cannot show Tempo Wallet, so Tempo Wallet gives you a code instead. ⌘-click the link below (Ctrl-click on Windows) to open it in a normal tab, or open it on your phone, and approve the key with your passkey." : "Opening Tempo Wallet. Approve the key with your passkey.");
       pending = await Wallet.connect();
       note("tool", `Tempo Wallet approved key ${Wallet.short(pending.keyAddress)} for ${Wallet.short(pending.address)}: ${limits}, at ${until(pending)}.`);
     }
@@ -132,11 +133,25 @@ export function Terminal() {
   async function fund() {
     const saved = connected ?? Wallet.restore();
     if (!saved) return note("tool", "Not logged in. Type /login first.");
+    if (Wallet.framed()) {
+      note("tool", "X's player cannot show Tempo Wallet. ⌘-click the link below (Ctrl-click on Windows) to buy MACH in a normal tab, then type /wallet to see your balance.");
+      return setCheckout({ address: saved.address, url: Wallet.fundingUrl(saved) });
+    }
     note("tool", "Opening MACH checkout in Tempo Wallet.");
     await Wallet.fund(saved);
   }
 
+  function open(event: MouseEvent<HTMLAnchorElement>) {
+    const pointer = (event.nativeEvent as PointerEvent).pointerType;
+    const mouse = pointer ? pointer === "mouse" : matchMedia("(pointer: fine)").matches;
+    if (!mouse || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (!Wallet.framed() || !Wallet.sandboxed()) return;
+    event.preventDefault();
+    note("tool", "That link would open in a tab that keeps X's sandbox, where Tempo Wallet cannot sign you in. ⌘-click it (Ctrl-click on Windows) to open a normal tab, or open it on your phone.");
+  }
+
   async function command(text: string) {
+    setCheckout(undefined);
     setPrompt("");
     setHighlight(0);
     note("user", text);
@@ -216,7 +231,13 @@ export function Terminal() {
 
       {device && (
         <p className="device">
-          Approve in Tempo Wallet: <a href={device.verificationUriFull ?? device.verificationUri} rel="noreferrer" target="_blank">{(device.verificationUriFull ?? device.verificationUri).replace(/^https:\/\//, "")}</a> · code <b>{device.userCode}</b>
+          Approve in Tempo Wallet: <a href={device.verificationUriFull ?? device.verificationUri} onClick={open} rel="noreferrer" target="_blank">{(device.verificationUriFull ?? device.verificationUri).replace(/^https:\/\//, "")}</a> · code <b>{device.userCode}</b>
+        </p>
+      )}
+
+      {checkout && (
+        <p className="device">
+          Buy MACH in Tempo Wallet: <a href={checkout.url} onClick={open} rel="noreferrer" target="_blank">checkout for {Wallet.short(checkout.address)}</a>
         </p>
       )}
 
