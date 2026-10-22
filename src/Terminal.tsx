@@ -1,8 +1,7 @@
-import { type Entry, liveEvent } from "nanocode-ts/client";
-import { Chat } from "nanocode-ts/ui";
-import "nanocode-ts/ui.css";
-import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createConfig, type Entry, liveEvent } from "nanocode-ts/client";
+import { Chat, NanocodeProvider, useConfig, useSend } from "nanocode-ts/react";
+import "nanocode-ts/react/styles.css";
+import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import type * as Agent from "./agent.ts";
 import * as Cloud from "./cloud.ts";
 import * as Machines from "./machines.ts";
@@ -25,67 +24,96 @@ const entriesKey = "nanocode.machines.entries";
 
 const localKey = "nanocode.machines.local";
 
-function saved(): Entry[] {
-  try {
-    return JSON.parse(localStorage.getItem(entriesKey) ?? "[]") as Entry[];
-  } catch {
-    return [];
-  }
-}
+const highlight = () => import("nanocode-ts/highlight").then(module => module.highlight);
 
 const limits = `at most ${amount(Wallet.allowance)} MACH, plus ${amount(Wallet.feeAllowance)} ${Wallet.usdc.symbol} for fees, until it expires a day later`;
 
+type Runtime = { agent?: Agent.Agent; cloud?: Cloud.Cloud };
+
 export function Terminal() {
+  const [setup] = useState(() => {
+    const runtime: Runtime = { cloud: Cloud.restore() };
+    const config = createConfig({
+      persist: {
+        load: () => {
+          try {
+            return JSON.parse(localStorage.getItem(entriesKey) ?? "[]") as Entry[];
+          } catch {
+            return [];
+          }
+        },
+        save: entries => localStorage.setItem(entriesKey, JSON.stringify(entries.slice(-300))),
+      },
+      keep: 300,
+      revealMs: 0,
+      transport: {
+        async send({ prompt, push, note }) {
+          if (runtime.cloud) return Cloud.ask(runtime.cloud, prompt, handlers(push, note));
+          if (!runtime.agent) throw new Error("The agent is still loading.");
+          if (!(await runtime.agent.ask(prompt))) throw new Error("The turn has no result.");
+        },
+        async steer({ prompt, note }) {
+          if (runtime.cloud) {
+            if (await Cloud.steer(runtime.cloud, prompt) === "steered") return true;
+            note("tool", "The turn is finishing; ask again in a moment.");
+            return false;
+          }
+          return await runtime.agent?.steer(prompt) === "steered";
+        },
+        async resume({ push, note }) {
+          const saved = Cloud.restore();
+          if (!saved?.open) return;
+          note("tool", "Reconnecting to the turn that kept running in the cloud while this tab was closed.");
+          await Cloud.resume(saved, handlers(push, note));
+        },
+      },
+    });
+    return { config, runtime };
+  });
+
+  return (
+    <NanocodeProvider config={setup.config} highlight={highlight}>
+      <Terminal.Agent runtime={setup.runtime} />
+    </NanocodeProvider>
+  );
+}
+
+function handlers(push: (event: NonNullable<ReturnType<typeof liveEvent>>) => void, note: (kind: Entry["kind"], text: string) => void): Cloud.Handlers {
+  return {
+    event: logged => {
+      const event = liveEvent(logged);
+      if (event) push(event);
+    },
+    interrupted: () => note("tool", "The session's Durable Object reset. Its alarm started it again, and the turn continues from its checkpoint."),
+  };
+}
+
+Terminal.Agent = function Agent(props: { runtime: Runtime }) {
+  const { runtime } = props;
+  const config = useConfig();
+  const { send, isPending: busy } = useSend();
+  const note = config.note;
   const [connected, setConnected] = useState<Wallet.Wallet>();
   const [ready, setReady] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [working, setWorking] = useState(false);
   const [status, setStatus] = useState("");
   const [device, setDevice] = useState<Wallet.Prompt>();
   const [checkout, setCheckout] = useState<{ address: string; url: string }>();
-  const [cloud, setCloud] = useState<Cloud.Cloud | undefined>(() => Cloud.restore());
-  const [view, setView] = useState<Chat>();
-  const root = useRef<HTMLDivElement>(null);
-  const chat = useRef<Chat | undefined>(undefined);
-  const latest = useRef<(text: string) => Promise<void>>(async () => {});
-  const agent = useRef<Agent.Agent | undefined>(undefined);
+  const [cloud, setCloudState] = useState<Cloud.Cloud | undefined>(runtime.cloud);
   const payments = useMemo(() => connected && Payments.create(connected), [connected]);
   const metered = useMemo(() => cloud && Cloud.meter(cloud), [cloud?.token]);
 
-  useEffect(() => {
-    const created = new Chat(root.current!, {
-      submit: text => void latest.current(text),
-      commands,
-      entries: saved(),
-      save: entries => localStorage.setItem(entriesKey, JSON.stringify(entries.slice(-300))),
-      highlight: () => import("nanocode-ts/highlight").then(module => module.highlight),
-      link: { href: "https://nanocode.xyz/", label: "nanocode.xyz →" },
-      revealMs: 0,
-      keep: 300,
-    });
-    chat.current = created;
-    setView(created);
-    return () => {
-      created.dispose();
-      chat.current = undefined;
-    };
-  }, []);
-
-  function note(kind: Entry["kind"], text: string) {
-    chat.current?.note(kind, text);
-  }
-
-  function push(entry: Parameters<typeof liveEvent>[0]) {
-    const event = liveEvent(entry);
-    if (event) chat.current?.push(event);
+  function setCloud(next: Cloud.Cloud | undefined) {
+    runtime.cloud = next;
+    setCloudState(next);
   }
 
   useEffect(() => Wallet.onPrompt(setDevice), []);
 
   useEffect(() => {
-    if (!view) return;
-    const restored = view.entries.length > 0;
+    const restored = config.getState().entries.length > 0;
     const saved = Wallet.restore();
+    void config.resume();
     if (!saved) return note("tool", `Not logged in. Type /login to connect your Tempo Wallet. It asks you to approve a key that this page keeps and pays with, ${limits}, and only for payments. The agent then pays for its own model and every service it calls.`);
     void Wallet.published(saved).then(onChain => {
       if (!onChain) return note("tool", "Tempo Wallet approved a key earlier, but it is not on Tempo yet. Type /login to publish it.");
@@ -93,7 +121,7 @@ export function Terminal() {
       if (!restored) note("tool", `Logged in as ${Wallet.short(saved.address)} with key ${Wallet.short(saved.keyAddress)} until ${until(saved)}. Type /wallet to see your MACH.`);
       if (!Cloud.restore() && localStorage.getItem(localKey) !== "1") void enableCloud(saved).catch((error: unknown) => note("error", message(error)));
     }, (error: unknown) => note("error", message(error)));
-  }, [view]);
+  }, []);
 
   useEffect(() => {
     if (!payments) return;
@@ -101,47 +129,27 @@ export function Terminal() {
     const { fetch: pay, model } = Machines.agent(payments);
     setStatus("Loading nanocode-ts…");
     void import("./agent.ts")
-      .then(module => module.create({ fetch: pay, instructions: Machines.instructions, model, onEvent: push }))
+      .then(module => module.create({ fetch: pay, instructions: Machines.instructions, model, onEvent: logged => {
+        const event = liveEvent(logged);
+        if (event) config.push(event);
+      } }))
       .then(created => {
         if (disposed) return void created.dispose();
-        agent.current = created;
+        runtime.agent = created;
         setReady(true);
         setStatus(summary(created));
       }, (error: unknown) => setStatus(`The agent could not start: ${message(error)}`));
     return () => {
       disposed = true;
       setReady(false);
-      void agent.current?.dispose();
-      agent.current = undefined;
+      void runtime.agent?.dispose();
+      runtime.agent = undefined;
     };
   }, [payments]);
 
-  const handlers: Cloud.Handlers = {
-    event: push,
-    interrupted: () => note("tool", "The session's Durable Object reset. Its alarm started it again, and the turn continues from its checkpoint."),
-  };
-
   useEffect(() => {
-    if (!view) return;
-    const saved = Cloud.restore();
-    if (!saved?.open) return;
-    note("tool", "Reconnecting to the turn that kept running in the cloud while this tab was closed.");
-    setBusy(true);
-    void Cloud.resume(saved, handlers).catch((error: unknown) => note("error", message(error))).finally(() => settle());
-  }, [view]);
-
-  useEffect(() => {
-    if (!view) return;
-    view.busy = busy;
-    view.activity = working && !busy ? { who: "wallet", text: "is working" } : undefined;
-    view.placeholder = !connected ? "Type /login to connect your Tempo Wallet" : undefined;
-    view.status = connected ? `${cloud ? "cloud · gpt-6-luna" : status} · ${Wallet.short(connected.address)}` : "not logged in · /login";
-    view.suggestions = (connected ? Machines.suggestions : ["/login"]).map(suggestion => ({ label: suggestion, run: () => void latest.current(suggestion), enabled: () => !working && !(connected && ((!ready && !cloud) || busy)) }));
-  }, [view, busy, working, connected, cloud, status, ready]);
-
-  function settle() {
-    chat.current?.run(() => setBusy(false));
-  }
+    if (!busy && runtime.agent) setStatus(summary(runtime.agent));
+  }, [busy]);
 
   async function login() {
     if (connected) return note("tool", `Already logged in as ${Wallet.short(connected.address)}. Type /logout first to use another wallet.`);
@@ -181,16 +189,14 @@ export function Terminal() {
     localStorage.removeItem(localKey);
     const current = Cloud.restore();
     if (current) return note("tool", `Running in the cloud as session ${current.session}. Type /local to run in this tab.`);
-    const enabled = await Cloud.enable(account);
-    setCloud(enabled);
+    setCloud(await Cloud.enable(account));
     note("tool", "The agent runs in the cloud, in a Durable Object with subagents and a workspace, paid from your key within its limit until it expires: this site's Worker keeps the key encrypted. Refresh or close the tab whenever you like; the turn keeps going and this page reconnects to it. Type /local to run in this tab instead, or /logout to revoke the key everywhere.");
   }
 
   function clear() {
-    chat.current?.clear();
+    config.clear();
     if (cloud) {
-      const next = Cloud.renew(cloud);
-      setCloud(next);
+      setCloud(Cloud.renew(cloud));
       note("tool", "New session. The previous one's files stay in the cloud.");
     } else note("tool", "Cleared.");
   }
@@ -255,71 +261,44 @@ export function Terminal() {
     setWorking(false);
   }
 
-  async function ask(text: string) {
-    if (!text) return;
-    if (text.startsWith("/")) return command(text);
-    const current = agent.current;
-    note("user", text);
-    if (!connected) return note("error", "Log in first: type /login.");
-    if (cloud) {
-      if (busy) {
-        try {
-          note("tool", await Cloud.steer(cloud, text) === "steered" ? "steered into the running turn" : "The turn is finishing; ask again in a moment.");
-        } catch (error) {
-          note("error", message(error));
-        }
-        return;
-      }
-      setBusy(true);
-      try {
-        await Cloud.ask(cloud, text, handlers);
-      } catch (error) {
-        note("error", message(error));
-      }
-      return settle();
+  function submit(text: string) {
+    if (text.startsWith("/")) return void command(text);
+    if (!connected) {
+      note("user", text);
+      return note("error", "Log in first: type /login.");
     }
-    if (!current) return note("tool", "The agent is still loading.");
-    if (busy) {
-      try {
-        if (await current.steer(text) === "steered") note("tool", "steered into the running turn");
-      } catch (error) {
-        note("error", message(error));
-      }
-      return;
+    if (!cloud && !runtime.agent) {
+      note("user", text);
+      return note("tool", "The agent is still loading.");
     }
-    setBusy(true);
-    try {
-      if (!(await current.ask(text))) throw new Error("The turn has no result.");
-    } catch (error) {
-      note("error", message(error));
-    }
-    settle();
-    setStatus(summary(current));
+    void send(text);
   }
 
-  latest.current = ask;
-
   return (
-    <div ref={root}>
-      {view && createPortal(
-        <>
-          {device && (
-            <p className="device">
-              Approve in Tempo Wallet: <a href={device.verificationUriFull ?? device.verificationUri} onClick={open} rel="noreferrer" target="_blank">{(device.verificationUriFull ?? device.verificationUri).replace(/^https:\/\//, "")}</a> · code <b>{device.userCode}</b>
-            </p>
-          )}
-          {checkout && (
-            <p className="device">
-              Buy MACH in Tempo Wallet: <a href={checkout.url} onClick={open} rel="noreferrer" target="_blank">checkout for {Wallet.short(checkout.address)}</a>
-            </p>
-          )}
-          {metered ? <Spend payments={metered} window={Payments.window} /> : payments && <Spend payments={payments} window={Payments.window} />}
-        </>,
-        view.extras,
-      )}
-    </div>
+    <Chat
+      activity={working && !busy ? { who: "wallet", text: "is working" } : undefined}
+      commands={commands}
+      extras={<>
+        {device && (
+          <p className="device">
+            Approve in Tempo Wallet: <a href={device.verificationUriFull ?? device.verificationUri} onClick={open} rel="noreferrer" target="_blank">{(device.verificationUriFull ?? device.verificationUri).replace(/^https:\/\//, "")}</a> · code <b>{device.userCode}</b>
+          </p>
+        )}
+        {checkout && (
+          <p className="device">
+            Buy MACH in Tempo Wallet: <a href={checkout.url} onClick={open} rel="noreferrer" target="_blank">checkout for {Wallet.short(checkout.address)}</a>
+          </p>
+        )}
+        {metered ? <Spend payments={metered} window={Payments.window} /> : payments && <Spend payments={payments} window={Payments.window} />}
+      </>}
+      link={{ href: "https://nanocode.xyz/", label: "nanocode.xyz →" }}
+      onSubmit={submit}
+      placeholder={!connected ? "Type /login to connect your Tempo Wallet" : undefined}
+      status={connected ? `${cloud ? "cloud · gpt-6-luna" : status} · ${Wallet.short(connected.address)}` : "not logged in · /login"}
+      suggestions={(connected ? Machines.suggestions : ["/login"]).map(suggestion => ({ label: suggestion, onClick: () => submit(suggestion), disabled: working || (!!connected && ((!ready && !cloud) || busy)) }))}
+    />
   );
-}
+};
 
 function summary(agent: Agent.Agent) {
   const { requests, rows } = agent.stats();
