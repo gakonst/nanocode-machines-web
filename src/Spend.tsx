@@ -4,7 +4,7 @@ import { format } from "./wallet.ts";
 
 const bars = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"] as const;
 
-export function Spend(props: { payments: Payments.Payments; window: number }) {
+export function Spend(props: { payments: Pick<Payments.Payments, "ledger" | "subscribe">; window: number }) {
   const { payments, window } = props;
   const ledger = useSyncExternalStore(payments.subscribe, payments.ledger, payments.ledger);
   const [now, setNow] = useState(() => Date.now());

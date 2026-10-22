@@ -1,5 +1,6 @@
 import type { LoggedEvent } from "nanocode-ts";
 import { serverEvents } from "nanocode-ts/client";
+import type * as Payments from "./payments.ts";
 import type * as Wallet from "./wallet.ts";
 
 const storageKey = "nanocode.machines.cloud";
@@ -58,7 +59,7 @@ export function renew(cloud: Cloud): Cloud {
 export async function status(cloud: Cloud) {
   const response = await fetch("v1/me", { headers: headers(cloud) });
   if (!response.ok) throw await failure(response);
-  return await response.json() as { spent: Record<string, string> };
+  return await response.json() as { calls?: Record<string, number>; spent: Record<string, string> };
 }
 
 async function follow(cloud: Cloud, response: Response, request: string, handlers: Handlers): Promise<boolean> {
@@ -133,4 +134,62 @@ export async function steer(cloud: Cloud, prompt: string): Promise<"queued" | "s
   if (response.ok) return "steered";
   if (response.status === 409) return "queued";
   throw await failure(response);
+}
+
+export function meter(cloud: Cloud, interval = 1000) {
+  let ledger: Payments.Ledger = { calls: 0, services: [], total: 0n };
+  let seen: Record<string, { calls: number; spent: bigint }> | undefined;
+  const listeners = new Set<() => void>();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  async function poll() {
+    try {
+      const { calls = {}, spent } = await status(cloud);
+      const now = Date.now();
+      const hosts = new Set([...Object.keys(spent), ...Object.keys(calls)]);
+      const first = seen === undefined;
+      const next: Record<string, { calls: number; spent: bigint }> = {};
+      let changed = first;
+      const services = [...ledger.services];
+      for (const host of hosts) {
+        const current = { calls: calls[host] ?? 0, spent: BigInt(spent[host] ?? "0") };
+        next[host] = current;
+        const before = seen?.[host] ?? { calls: 0, spent: 0n };
+        const name = host.split(".")[0] ?? host;
+        const index = services.findIndex(service => service.name === name);
+        const previous = index >= 0 ? services[index]! : { calls: 0, charges: [], name, spent: 0n };
+        const amount = current.spent - before.spent;
+        if (!first && amount <= 0n && current.calls === before.calls) continue;
+        changed = true;
+        const service: Payments.Service = {
+          calls: current.calls,
+          charges: [...previous.charges.filter(item => now - item.at < 30_000), ...(first || amount <= 0n ? [] : [{ amount, at: now }])],
+          name,
+          spent: current.spent,
+        };
+        if (index >= 0) services[index] = service;
+        else services.push(service);
+      }
+      seen = next;
+      if (changed) {
+        ledger = { calls: services.reduce((sum, service) => sum + service.calls, 0), services, total: services.reduce((sum, service) => sum + service.spent, 0n) };
+        for (const listener of listeners) listener();
+      }
+    } catch {
+      // the next poll tries again
+    }
+    if (listeners.size) timer = setTimeout(poll, interval);
+  }
+
+  return {
+    ledger: () => ledger,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      if (listeners.size === 1) void poll();
+      return () => {
+        listeners.delete(listener);
+        if (!listeners.size) clearTimeout(timer);
+      };
+    },
+  };
 }

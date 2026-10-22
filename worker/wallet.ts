@@ -76,7 +76,9 @@ export class Wallet extends DurableObject<Env> {
     const record = await this.record();
     const spent: Record<string, string> = {};
     for (const [key, value] of this.ctx.storage.kv.list<string>({ prefix: "spent:" })) spent[key.slice("spent:".length)] = value;
-    return record ? { address: record.address, key_address: record.keyAddress, key_type: record.keyType, expires_at: record.expiry * 1000, spent } : { spent };
+    const calls: Record<string, number> = {};
+    for (const [key, value] of this.ctx.storage.kv.list<number>({ prefix: "calls:" })) calls[key.slice("calls:".length)] = value;
+    return record ? { address: record.address, key_address: record.keyAddress, key_type: record.keyType, expires_at: record.expiry * 1000, spent, calls } : { spent, calls };
   }
 
   async setSecret(name: string, value: string | null) {
@@ -223,6 +225,8 @@ export class Wallet extends DurableObject<Env> {
     const body = method === "GET" || method === "HEAD" ? undefined : await request.arrayBuffer();
     try {
       const payer = await this.pay();
+      const calls = `calls:${new URL(target).hostname}`;
+      this.ctx.storage.kv.put(calls, (this.ctx.storage.kv.get<number>(calls) ?? 0) + 1);
       return await payer.fetch(target, { method, headers, body, signal: request.signal, context: { depositRaw: OPENING } });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

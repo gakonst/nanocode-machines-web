@@ -58,6 +58,7 @@ export function Terminal() {
     revealMs: 0,
   }), []);
   const payments = useMemo(() => connected && Payments.create(connected), [connected]);
+  const metered = useMemo(() => cloud && Cloud.meter(cloud), [cloud?.token]);
 
   function note(kind: Entry["kind"], text: string) {
     setEntries(entries => [...entries, { done: true, kind, text }]);
@@ -342,7 +343,7 @@ export function Terminal() {
         </p>
       )}
 
-      {payments && <Spend payments={payments} window={Payments.window} />}
+      {metered ? <Spend payments={metered} window={Payments.window} /> : payments && <Spend payments={payments} window={Payments.window} />}
 
       {choices.length > 0 && (
         <div aria-label="Commands" className="picker" role="listbox">
