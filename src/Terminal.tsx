@@ -85,13 +85,13 @@ export function Terminal() {
   useEffect(() => {
     if (!payments) return;
     let disposed = false;
-    const { call, model } = Machines.agent(payments);
+    const { fetch: pay, model } = Machines.agent(payments);
     setStatus("Loading nanocode-ts…");
     void import("./agent.ts")
-      .then(module => module.create({ call, instructions: Machines.instructions, model, onEvent: entry => {
+      .then(module => module.create({ fetch: pay, instructions: Machines.instructions, model, onEvent: entry => {
         const event = liveEvent(entry);
         if (event) transcript.push(event);
-      }, tools: Machines.tools }))
+      } }))
       .then(created => {
         if (disposed) return void created.dispose();
         agent.current = created;
