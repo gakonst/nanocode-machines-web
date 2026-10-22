@@ -42,7 +42,6 @@ A template for a nanocode agent that pays for its own model and tools from the v
   - In Chromium the page loaded the agent from a restored test key whose throwaway account held no MACH. The agent's first model request reached the OpenAI proxy's 402, and mppx chose the MACH session and built the channel open. The open's gas estimate reverted with `InsufficientBalance`, which the page reports as too little MACH.
   - `/login` opened Tempo Wallet's popup with the access-key request.
   - With an approved test key, `/login` built the publication transaction with its key authorization and USDC.e fee. The RPC refused it for lack of USDC.e ("have 0 want 1169"), which the page reports as a missing fee.
-- Not yet verified:
-  - a paid turn from a real wallet;
+- On 2026-10-21 the wallet's owner logged in at nanocode.xyz/machines/ with a real Tempo Wallet. They published the key and ran paid turns, so login, publication and MPP payments work end to end.
 - Real payments spend the visitor's MACH.
 - Develop with `npm install` and `npm run dev`, and check with `npm run check` and `npm run build`. Do not add code comments, README files or tests. Keep logs and other artifacts in ignored `output/`.
