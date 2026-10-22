@@ -53,6 +53,23 @@ export function framed() {
   return document.documentElement.hasAttribute("data-xframe");
 }
 
+let formsBlocked: boolean | undefined;
+
+export function sandboxed() {
+  if (formsBlocked !== undefined) return formsBlocked;
+  const form = document.createElement("form");
+  let submitted = false;
+  form.addEventListener("submit", event => {
+    submitted = true;
+    event.preventDefault();
+  });
+  document.body.append(form);
+  form.requestSubmit();
+  form.remove();
+  formsBlocked = !submitted;
+  return formsBlocked;
+}
+
 export function onPrompt(listener: (prompt: Prompt) => void) {
   prompt = listener;
   return () => {
@@ -150,6 +167,10 @@ export function forget() {
 
 export function fund(connected: Wallet) {
   return Mach.fund(wallet(), { address: connected.address, displayName: "nanocode machines" });
+}
+
+export function fundingUrl(connected: Wallet) {
+  return Mach.getFundingUrl({ address: connected.address });
 }
 
 export function signer(connected: Wallet) {
