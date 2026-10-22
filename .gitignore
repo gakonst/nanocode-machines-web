@@ -2,3 +2,5 @@ node_modules/
 dist/
 .wrangler/
 output/
+.dev.vars
+.wrangler

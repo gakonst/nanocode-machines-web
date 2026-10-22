@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
     "preview": "vite preview",
     "deploy": "vite build && wrangler deploy"
   },
@@ -16,6 +16,7 @@
     "@sqlite.org/sqlite-wasm": "3.54.1-build1",
     "accounts": "0.21.0",
     "mppx": "0.13.6",
+    "nanocode-cloudflare-durable": "github:gakonst/nanocode-cloudflare-durable#9746bf37db8a219901b9e1810e75b8751b35ff84",
     "nanocode-ts": "https://github.com/gakonst/nanocode-ts/releases/download/build-7fab7d8/nanocode-ts-7fab7d8.tgz",
     "ox": "0.14.56",
     "react": "19.3.1",
@@ -23,6 +24,7 @@
     "viem": "2.57.7"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "5.20261022.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.2",

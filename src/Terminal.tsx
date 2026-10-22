@@ -1,6 +1,7 @@
 import { type Entry, liveEvent, Transcript } from "nanocode-ts/client";
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import type * as Agent from "./agent.ts";
+import * as Cloud from "./cloud.ts";
 import * as Machines from "./machines.ts";
 import * as Payments from "./payments.ts";
 import { Reply } from "./Reply.tsx";
@@ -13,6 +14,8 @@ const commands = [
   { detail: "connect Tempo Wallet and approve a key that pays for this agent", label: "/login" },
   { detail: "show your MACH and what the key may still spend", label: "/wallet" },
   { detail: "buy MACH in Tempo Wallet", label: "/fund" },
+  { detail: "run the agent in the cloud: turns keep going after you close the tab", label: "/cloud" },
+  { detail: "run the agent in this tab again", label: "/local" },
   { detail: "revoke the key in Tempo Wallet and forget it here", label: "/logout" },
   { detail: "list the commands", label: "/help" },
 ] as const;
@@ -32,6 +35,7 @@ export function Terminal() {
   const [highlight, setHighlight] = useState(0);
   const [device, setDevice] = useState<Wallet.Prompt>();
   const [checkout, setCheckout] = useState<{ address: string; url: string }>();
+  const [cloud, setCloud] = useState<Cloud.Cloud | undefined>(() => Cloud.restore());
   const agent = useRef<Agent.Agent | undefined>(undefined);
   const log = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -84,6 +88,25 @@ export function Terminal() {
 
   useEffect(() => () => transcript.reset(), [transcript]);
 
+  const handlers: Cloud.Handlers = {
+    event: logged => {
+      const event = liveEvent(logged);
+      if (event) transcript.push(event);
+    },
+    interrupted: () => note("tool", "The session's Durable Object reset. Its alarm started it again, and the turn continues from its checkpoint."),
+  };
+
+  useEffect(() => {
+    const saved = Cloud.restore();
+    if (!saved?.open) return;
+    note("tool", "Reconnecting to the turn that kept running in the cloud while this tab was closed.");
+    setBusy(true);
+    void Cloud.resume(saved, handlers).catch((error: unknown) => note("error", message(error))).finally(() => {
+      setLive(undefined);
+      setBusy(false);
+    });
+  }, []);
+
   useEffect(() => {
     log.current?.scrollTo({ top: log.current.scrollHeight });
   }, [entries, live]);
@@ -121,13 +144,36 @@ export function Terminal() {
       note("error", `Tempo Wallet did not revoke the key (${message(error)}). It stays valid until ${until(saved)} with what is left of its limit, but this page no longer keeps it.`);
     }
     Wallet.forget();
+    Cloud.forget();
+    setCloud(undefined);
     setConnected(undefined);
+  }
+
+  async function enableCloud() {
+    if (!connected) return note("tool", "Not logged in. Type /login first.");
+    if (cloud) return note("tool", `Running in the cloud as session ${cloud.session}. Type /local to run in this tab.`);
+    note("tool", "Handing the key to the cloud: this site's Worker keeps it encrypted and pays your agent's model and services with it while turns run, within the key's limit and until it expires. Type /logout to revoke it everywhere.");
+    const enabled = await Cloud.enable(connected);
+    setCloud(enabled);
+    note("tool", `Running in the cloud, in a Durable Object with subagents and a workspace. Close the tab whenever you like; the turn keeps going and this page reconnects to it. Session ${enabled.session}.`);
+  }
+
+  function disableCloud() {
+    if (!cloud) return note("tool", "Already running in this tab.");
+    Cloud.forget();
+    setCloud(undefined);
+    note("tool", "Running in this tab again. The cloud keeps the key until it expires; type /logout to revoke it.");
   }
 
   async function wallet() {
     if (!connected) return note("tool", "Not logged in. Type /login.");
     const { balance, fees, remaining } = await Wallet.balances(connected);
     note("tool", `${Wallet.short(connected.address)} holds ${Wallet.format(balance)} MACH and ${Wallet.format(fees)} ${Wallet.usdc.symbol}. Key ${Wallet.short(connected.keyAddress)} may spend ${Wallet.format(remaining)} MACH more until ${until(connected)}${payments ? `, and this page has paid ${Wallet.format(payments.ledger().total)} MACH since it opened` : ""}.`);
+    if (cloud) {
+      const { spent } = await Cloud.status(cloud);
+      const total = Object.values(spent).reduce((sum, value) => sum + BigInt(value), 0n);
+      note("tool", `The cloud has paid ${Wallet.format(total)} MACH: ${Object.entries(spent).map(([host, value]) => `${host.split(".")[0]} ${Wallet.format(BigInt(value))}`).join(", ") || "nothing yet"}.`);
+    }
   }
 
   async function fund() {
@@ -162,6 +208,8 @@ export function Terminal() {
       else if (name === "/logout") await logout();
       else if (name === "/wallet") await wallet();
       else if (name === "/fund") await fund();
+      else if (name === "/cloud") await enableCloud();
+      else if (name === "/local") disableCloud();
       else note("tool", commands.map(entry => `${entry.label.padEnd(8)} ${entry.detail}`).join("\n"));
     } catch (error) {
       note("error", Machines.explain(error).message);
@@ -177,6 +225,25 @@ export function Terminal() {
     setPrompt("");
     note("user", text);
     if (!connected) return note("error", "Log in first: type /login.");
+    if (cloud) {
+      if (busy) {
+        try {
+          note("tool", await Cloud.steer(cloud, text) === "steered" ? "steered into the running turn" : "The turn is finishing; ask again in a moment.");
+        } catch (error) {
+          note("error", message(error));
+        }
+        return;
+      }
+      setBusy(true);
+      try {
+        await Cloud.ask(cloud, text, handlers);
+      } catch (error) {
+        note("error", message(error));
+      }
+      setLive(undefined);
+      setBusy(false);
+      return;
+    }
     if (!current) return note("tool", "The agent is still loading.");
     if (busy) {
       try {
@@ -298,12 +365,12 @@ export function Terminal() {
 
       <div className="suggestions">
         {(connected ? Machines.suggestions : ["/login"]).map(suggestion => (
-          <button className="suggestion" disabled={working || (!!connected && (!ready || busy))} key={suggestion} onClick={() => void ask(suggestion)} type="button">{suggestion}</button>
+          <button className="suggestion" disabled={working || (!!connected && ((!ready && !cloud) || busy))} key={suggestion} onClick={() => void ask(suggestion)} type="button">{suggestion}</button>
         ))}
       </div>
 
       <p className="status">
-        <span>{connected ? `${status} · ${Wallet.short(connected.address)}` : "not logged in · /login"}</span>
+        <span>{connected ? `${cloud ? "cloud · gpt-6-luna" : status} · ${Wallet.short(connected.address)}` : "not logged in · /login"}</span>
         <a className="site" href="https://nanocode.xyz/" rel="noreferrer" target="_blank">nanocode.xyz →</a>
       </p>
     </section>
