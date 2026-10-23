@@ -16,7 +16,7 @@
     "@sqlite.org/sqlite-wasm": "3.54.1-build1",
     "accounts": "0.21.0",
     "mppx": "0.13.6",
-    "nanocode-ts": "https://github.com/gakonst/nanocode-ts/releases/download/build-0d6a500/nanocode-ts-0d6a500.tgz",
+    "nanocode-ts": "https://github.com/gakonst/nanocode-ts/releases/download/build-d29cb59/nanocode-ts-d29cb59.tgz",
     "ox": "0.14.56",
     "react": "19.3.1",
     "react-dom": "19.3.1",

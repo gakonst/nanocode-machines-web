@@ -1,5 +1,6 @@
 import { createJsonChannelStore, Mppx, tempo as payments } from "mppx/client";
 import { type Address, isAddressEqual } from "viem";
+import * as Mcp from "./mcp.ts";
 import * as Wallet from "./wallet.ts";
 
 const topUp = "0.05";
@@ -55,14 +56,25 @@ export function create(connected: Wallet.Wallet) {
     try {
       parsed = JSON.parse(text);
     } catch {
-      return;
+      return false;
     }
-    if (parsed.intent !== "session" || !parsed.channelId || parsed.spent === undefined) return;
+    if (parsed.intent !== "session" || !parsed.channelId || parsed.spent === undefined) return false;
     const key = `${prefix}spent.${parsed.channelId}`;
     const before = BigInt(localStorage.getItem(key) ?? "0");
     const spent = BigInt(parsed.spent);
     localStorage.setItem(key, spent.toString());
     charge(origin, spent - before, paid);
+    return true;
+  }
+
+  async function tool(call: Mcp.Call | undefined, response: Response) {
+    if (!call) return;
+    const result = await Mcp.outcome(response);
+    const description = result.description ?? call.challenge?.description;
+    if (description) labels.set(route(call.url), description.slice(0, 80));
+    if (result.required || !call.challenge) return;
+    if (call.challenge.intent === "charge") return charge(call.url, BigInt(call.challenge.request?.amount ?? "0"), true);
+    if (!result.receipt || !receipt(call.url, JSON.stringify(result.receipt), true)) charge(call.url, 0n, true);
   }
 
   function metered(origin: string, body: ReadableStream<Uint8Array>) {
@@ -85,8 +97,14 @@ export function create(connected: Wallet.Wallet) {
 
   const mppx = Mppx.create({
     fetch: async (input, init) => {
-      const response = await send(input, init);
       const origin = String(input instanceof Request ? input.url : input);
+      if (Mcp.server(origin)) {
+        const call = await Mcp.call(input, init);
+        const response = await send(input, Mcp.crossOrigin(init));
+        await tool(call, response);
+        return response;
+      }
+      const response = await send(input, init);
       const description = response.status === 402 ? response.headers.get("www-authenticate")?.match(/description="([^"]*)"/)?.[1] : undefined;
       if (description) labels.set(route(origin), description.slice(0, 80));
       const header = response.headers.get("payment-receipt");
@@ -125,9 +143,9 @@ export function create(connected: Wallet.Wallet) {
   });
 
   mppx.onPaymentResponse(payment => {
-    if (payment.challenge.intent !== "charge") return;
-    const request = payment.challenge.request as { amount?: string };
     const origin = String(payment.input instanceof Request ? payment.input.url : payment.input);
+    if (payment.challenge.intent !== "charge" || Mcp.server(origin)) return;
+    const request = payment.challenge.request as { amount?: string };
     charge(origin, BigInt(request.amount ?? "0"), true);
   });
 

@@ -3,6 +3,7 @@ import { type Address, isAddressEqual, isHex } from "viem";
 import { Account, Actions, createClient, http } from "viem/tempo";
 import { tempo } from "viem/tempo/chains";
 import { machines } from "./egress.ts";
+import * as Mcp from "../src/mcp.ts";
 import * as Services from "../src/services.ts";
 import { type Env, json, paying, wallet } from "./env.ts";
 import { machineTools } from "./tools.ts";
@@ -81,11 +82,13 @@ const nanocode = createNanocode<Env>({
   subagents: true,
   streamToolInput: true,
   codeMode: { fetch: (authority, env) => paying(env, authority.account_id) },
+  mcp: { servers: Mcp.servers, fetch: (authority, env) => paying(env, authority.account_id) },
   instructions: [
     "You are the cloud agent of nanocode.xyz/machines, running durably in a Cloudflare Durable Object and paying from the account's Tempo Wallet access key, so turns keep running when the browser closes.",
     Services.code,
     "The services:",
     ...Services.services,
+    Services.mcp,
     "Answer in a few short lines.",
   ].join("\n"),
 });

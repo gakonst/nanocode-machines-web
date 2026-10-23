@@ -2,13 +2,14 @@ import sqlite3InitModule, { type Database } from "@sqlite.org/sqlite-wasm";
 import { AgentRuntime, type LoggedEvent, sessionUuid, type SqlHost, type SqlValue, type TurnReport } from "nanocode-ts";
 import { Bash, SqlFileSystem } from "nanocode-ts/bash";
 import wasm from "nanocode-ts/nanocode_wasm.wasm?url";
+import * as Mcp from "./mcp.ts";
 
 const scope = "machines";
 
 let compiled: Promise<WebAssembly.Module> | undefined;
 
 export type Model = {
-  dispatch: (request: { body: Uint8Array; endpoint: string; headers: [string, string][] }, signal: AbortSignal) => Promise<Response>;
+  dispatch: (request: { body: Uint8Array; endpoint: string; headers: [string, string][]; method: string }, signal: AbortSignal) => Promise<Response>;
   endpoint: string;
   model: string;
   provider: "claude" | "codex";
@@ -35,32 +36,45 @@ export async function create(options: Options): Promise<Agent> {
   const { instructions, model, onEvent } = options;
   compiled ??= WebAssembly.compileStreaming(fetch(wasm));
   const [module, sqlite3] = await Promise.all([compiled, sqlite3InitModule()]);
-  const database = new sqlite3.oo1.DB(":memory:", "c");
-  const host = sql(database);
-  // The model's shell and file tools and the cells' bash share files kept in the session's database.
-  const shell = await Bash.create({ cwd: "/workspace", fetch: options.fetch, fs: new SqlFileSystem(host, scope), github: { archive: (owner, repo, ref) => `api/github/${owner}/${repo}/${ref}` } });
-  const runtime = await AgentRuntime.instantiate(module, host, {
-    published: events => {
-      for (const entry of events) onEvent(entry);
-    },
-  });
-  await runtime.open(
-    {
-      code_mode: true,
-      endpoint: model.endpoint,
-      event_coalesce_ms: 50,
-      instructions,
-      model: model.model,
-      provider: model.provider,
-      scope,
-      session_id: sessionUuid(),
-      subagents: model.subagents,
-      subscription: false,
-      thinking: model.thinking,
-      workspace: shell.cwd,
-    },
-    { dispatch: (request, signal) => model.dispatch(request, signal), fetch: options.fetch, workspace: shell.workspace() },
-  );
+
+  async function start(servers: typeof Mcp.servers) {
+    const database = new sqlite3.oo1.DB(":memory:", "c");
+    const host = sql(database);
+    // The model's shell and file tools and the cells' bash share files kept in the session's database.
+    const shell = await Bash.create({ cwd: "/workspace", fetch: options.fetch, fs: new SqlFileSystem(host, scope), github: { archive: (owner, repo, ref) => `api/github/${owner}/${repo}/${ref}` } });
+    const runtime = await AgentRuntime.instantiate(module, host, {
+      published: events => {
+        for (const entry of events) onEvent(entry);
+      },
+    });
+    try {
+      await runtime.open(
+        {
+          code_mode: true,
+          endpoint: model.endpoint,
+          event_coalesce_ms: 50,
+          instructions,
+          ...(servers.length ? { mcp_servers: servers } : {}),
+          model: model.model,
+          provider: model.provider,
+          scope,
+          session_id: sessionUuid(),
+          subagents: model.subagents,
+          subscription: false,
+          thinking: model.thinking,
+          workspace: shell.cwd,
+        },
+        { dispatch: (request, signal) => model.dispatch(request, signal), fetch: options.fetch, workspace: shell.workspace() },
+      );
+    } catch (error) {
+      await runtime.dispose();
+      database.close();
+      throw error;
+    }
+    return { database, runtime };
+  }
+
+  const { database, runtime } = await start(Mcp.servers).catch(() => start([]));
 
   async function submit(prompt: string) {
     const request = crypto.randomUUID();
