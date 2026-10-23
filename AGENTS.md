@@ -64,3 +64,5 @@ A template for a nanocode agent that pays for its own model and tools from the v
 - On 2026-10-21 the wallet's owner logged in at nanocode.xyz/machines/ with a real Tempo Wallet. They published the key and ran paid turns, so login, publication and MPP payments work end to end.
 - Real payments spend the visitor's MACH.
 - Develop with `npm install` and `npm run dev`, and check with `npm run check` and `npm run build`. Do not add code comments, README files or tests. Keep logs and other artifacts in ignored `output/`.
+
+- nanocode-ts is pinned to a commit (`"nanocode-ts": "github:gakonst/nanocode-ts#<full sha>"`), not a release tarball. Move it with `npm install github:gakonst/nanocode-ts#<full sha>` right after the nanocode-ts change lands: its prepare script fetches the prebuilt WASM for that commit's fingerprint and builds only the TypeScript, so there is no release to wait for.
