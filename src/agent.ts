@@ -38,7 +38,7 @@ export async function create(options: Options): Promise<Agent> {
   const database = new sqlite3.oo1.DB(":memory:", "c");
   const host = sql(database);
   // The model's shell and file tools and the cells' bash share files kept in the session's database.
-  const shell = await Bash.create({ cwd: "/workspace", fs: new SqlFileSystem(host, scope) });
+  const shell = await Bash.create({ cwd: "/workspace", fetch: options.fetch, fs: new SqlFileSystem(host, scope), github: { archive: (owner, repo, ref) => `api/github/${owner}/${repo}/${ref}` } });
   const runtime = await AgentRuntime.instantiate(module, host, {
     published: events => {
       for (const entry of events) onEvent(entry);

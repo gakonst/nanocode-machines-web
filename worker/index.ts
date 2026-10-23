@@ -94,6 +94,15 @@ export const { AgentSession } = nanocode;
 
 const DEVICE = "https://wallet.tempo.xyz/api/auth/device";
 
+const ARCHIVE = /^\/api\/github\/([\w.-]+)\/([\w.-]+)\/(.+)$/;
+
+async function archive(pathname: string): Promise<Response> {
+  const match = ARCHIVE.exec(pathname);
+  if (!match) return json({ error: "use /api/github/OWNER/REPO/REF" }, 404);
+  const upstream = await fetch(`https://codeload.github.com/${match[1]}/${match[2]}/tar.gz/${match[3]}`, { headers: { "user-agent": "nanocode-machines-web" } });
+  return new Response(upstream.body, { headers: { "cache-control": "public, max-age=300", "content-type": upstream.headers.get("content-type") ?? "application/x-gzip" }, status: upstream.status });
+}
+
 async function relay(request: Request, pathname: string): Promise<Response> {
   const response = await fetch(`${DEVICE}${pathname.slice("/api/device".length)}`, {
     body: await request.text(),
@@ -107,6 +116,7 @@ export default {
   async fetch(request, env) {
     const { pathname } = new URL(request.url);
     if (request.method === "POST" && (pathname === "/api/device/register" || pathname === "/api/device/token")) return relay(request, pathname);
+    if (request.method === "GET" && pathname.startsWith("/api/github/")) return archive(pathname);
     if (pathname.startsWith("/v1/")) return api(request, env, pathname);
     if (pathname.startsWith("/sessions/") || pathname === "/health") return nanocode.fetch(request, env);
     return env.ASSETS.fetch(request);
