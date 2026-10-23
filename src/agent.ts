@@ -1,5 +1,6 @@
 import sqlite3InitModule, { type Database } from "@sqlite.org/sqlite-wasm";
 import { AgentRuntime, LocalHand, type LoggedEvent, sessionUuid, type SqlHost, type SqlValue, type TurnReport } from "nanocode-ts";
+import { Bash, SqlFileSystem } from "nanocode-ts/bash";
 import wasm from "nanocode-ts/nanocode_wasm.wasm?url";
 
 const scope = "machines";
@@ -35,7 +36,10 @@ export async function create(options: Options): Promise<Agent> {
   compiled ??= WebAssembly.compileStreaming(fetch(wasm));
   const [module, sqlite3] = await Promise.all([compiled, sqlite3InitModule()]);
   const database = new sqlite3.oo1.DB(":memory:", "c");
-  const runtime = await AgentRuntime.instantiate(module, sql(database), {
+  const host = sql(database);
+  // The model's shell and file tools and the cells' bash share files kept in the session's database.
+  const shell = await Bash.create({ cwd: "/workspace", fs: new SqlFileSystem(host, scope) });
+  const runtime = await AgentRuntime.instantiate(module, host, {
     published: events => {
       for (const entry of events) onEvent(entry);
     },
@@ -53,8 +57,9 @@ export async function create(options: Options): Promise<Agent> {
       subagents: model.subagents,
       subscription: false,
       thinking: model.thinking,
+      workspace: shell.cwd,
     },
-    { dispatch: (request, signal) => model.dispatch(request, signal), remote: new LocalHand({ fetch: options.fetch }) },
+    { dispatch: (request, signal) => model.dispatch(request, signal), remote: new LocalHand({ bash: shell, fetch: options.fetch }), workspace: shell.workspace() },
   );
 
   async function submit(prompt: string) {
