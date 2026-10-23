@@ -3,6 +3,7 @@ import { createJsonChannelStore, Mppx, tempo as payments } from "mppx/client";
 import { type Address, type Hex, isAddressEqual } from "viem";
 import { Account, createClient, http } from "viem/tempo";
 import { tempo } from "viem/tempo/chains";
+import { channelSlot } from "../src/services.ts";
 import type { Env } from "./env.ts";
 
 export const MACH: Address = "0x20c000000000000000000000f37de3740adec032";
@@ -209,9 +210,9 @@ export class Wallet extends DurableObject<Env> {
           account,
           allowedChainIds: [tempo.id],
           channelStore: createJsonChannelStore({
-            delete: key => { kv.delete(prefix + key); },
-            get: key => kv.get<string>(prefix + key) ?? undefined,
-            set: (key, value) => kv.put(prefix + key, value),
+            delete: key => { kv.delete(prefix + channelSlot(key)); },
+            get: key => kv.get<string>(prefix + channelSlot(key)) ?? undefined,
+            set: (key, value) => kv.put(prefix + channelSlot(key), value),
           }),
           getClient: () => client,
           maxDeposit: MAX_DEPOSIT,
