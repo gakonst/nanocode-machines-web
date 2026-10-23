@@ -1,5 +1,6 @@
 import { createConfig, type Entry, liveEvent } from "nanocode-ts/client";
 import { Chat, NanocodeProvider, useConfig, useConversations, useSend } from "nanocode-ts/react";
+import { skin } from "nanocode-ts/react/skin";
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import type * as Agent from "./agent.ts";
 import * as Cloud from "./cloud.ts";
@@ -65,7 +66,7 @@ export function Terminal() {
   });
 
   return (
-    <NanocodeProvider config={setup.config} highlight={highlight}>
+    <NanocodeProvider config={setup.config} highlight={highlight} skin={skin}>
       <Terminal.Agent runtime={setup.runtime} />
     </NanocodeProvider>
   );
