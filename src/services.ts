@@ -11,9 +11,3 @@ export const services = [
 ];
 
 export const code = "You work in Code Mode: exec runs JavaScript, and its global fetch pays any MPP service it calls in MACH from the wallet, over MPP sessions or per request, so call services with fetch and never ask for payment details. A 402 that still comes back means the wallet could not pay. Run independent requests in one exec with Promise.all, and text() only the parts of each response you need, since the wallet pays for every token you read back.";
-
-export const gatewayPayee = "0x40def0cf3b5d28b6e9a7976ba10591e515afecfe";
-
-export function channelSlot(key: string) {
-  return key.startsWith(gatewayPayee) ? `operated.${key}` : key;
-}
