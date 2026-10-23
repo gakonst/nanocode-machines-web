@@ -1,5 +1,5 @@
 import { createConfig, type Entry, liveEvent } from "nanocode-ts/client";
-import { Chat, NanocodeProvider, useConfig, useSend } from "nanocode-ts/react";
+import { Chat, NanocodeProvider, useConfig, useConversations, useSend } from "nanocode-ts/react";
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import type * as Agent from "./agent.ts";
 import * as Cloud from "./cloud.ts";
@@ -20,8 +20,6 @@ const commands = [
   { detail: "list the commands", label: "/help" },
 ] as const;
 
-const entriesKey = "nanocode.machines.entries";
-
 const localKey = "nanocode.machines.local";
 
 const highlight = () => import("nanocode-ts/highlight").then(module => module.highlight);
@@ -34,16 +32,7 @@ export function Terminal() {
   const [setup] = useState(() => {
     const runtime: Runtime = { cloud: Cloud.restore() };
     const config = createConfig({
-      persist: {
-        load: () => {
-          try {
-            return JSON.parse(localStorage.getItem(entriesKey) ?? "[]") as Entry[];
-          } catch {
-            return [];
-          }
-        },
-        save: entries => localStorage.setItem(entriesKey, JSON.stringify(entries.slice(-300))),
-      },
+      history: { key: "nanocode.machines" },
       keep: 300,
       revealMs: 0,
       transport: {
@@ -66,6 +55,10 @@ export function Terminal() {
           note("tool", "Reconnecting to the turn that kept running in the cloud while this tab was closed.");
           await Cloud.resume(saved, handlers(push, note));
         },
+        restore(saved) {
+          if (runtime.cloud) Cloud.adopt(runtime.cloud, saved);
+        },
+        snapshot: () => runtime.cloud && Cloud.snapshot(runtime.cloud),
       },
     });
     return { config, runtime };
@@ -92,6 +85,7 @@ Terminal.Agent = function Agent(props: { runtime: Runtime }) {
   const { runtime } = props;
   const config = useConfig();
   const { send, isPending: busy } = useSend();
+  const { current: conversation } = useConversations();
   const note = config.note;
   const [connected, setConnected] = useState<Wallet.Wallet>();
   const [ready, setReady] = useState(false);
@@ -111,9 +105,12 @@ Terminal.Agent = function Agent(props: { runtime: Runtime }) {
   useEffect(() => Wallet.onPrompt(setDevice), []);
 
   useEffect(() => {
+    void config.resume();
+  }, [conversation]);
+
+  useEffect(() => {
     const restored = config.getState().entries.length > 0;
     const saved = Wallet.restore();
-    void config.resume();
     if (!saved) return note("tool", `Not logged in. Type /login to connect your Tempo Wallet. It asks you to approve a key that this page keeps and pays with, ${limits}, and only for payments. The agent then pays for its own model and every service it calls.`);
     void Wallet.published(saved).then(onChain => {
       if (!onChain) return note("tool", "Tempo Wallet approved a key earlier, but it is not on Tempo yet. Type /login to publish it.");
@@ -196,7 +193,6 @@ Terminal.Agent = function Agent(props: { runtime: Runtime }) {
   function clear() {
     config.clear();
     if (cloud) {
-      setCloud(Cloud.renew(cloud));
       note("tool", "New session. The previous one's files stay in the cloud.");
     } else note("tool", "Cleared.");
   }
