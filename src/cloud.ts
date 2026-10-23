@@ -50,10 +50,16 @@ export async function enable(connected: Wallet.Wallet): Promise<Cloud> {
   return cloud;
 }
 
-export function renew(cloud: Cloud): Cloud {
-  const next: Cloud = { ...cloud, cursor: 0, open: undefined, session: `web-${crypto.randomUUID()}` };
-  save(next);
-  return next;
+export type Session = Pick<Cloud, "cursor" | "open" | "session">;
+
+export function snapshot(cloud: Cloud): Session {
+  return { cursor: cloud.cursor, open: cloud.open, session: cloud.session };
+}
+
+export function adopt(cloud: Cloud, saved: unknown) {
+  const session = saved as Partial<Session> | undefined;
+  Object.assign(cloud, typeof session?.session === "string" ? { cursor: session.cursor ?? 0, open: session.open, session: session.session } : { cursor: 0, open: undefined, session: `web-${crypto.randomUUID()}` });
+  save(cloud);
 }
 
 export async function status(cloud: Cloud) {
