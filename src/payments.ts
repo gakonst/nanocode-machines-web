@@ -1,6 +1,5 @@
 import { createJsonChannelStore, Mppx, tempo as payments } from "mppx/client";
 import { type Address, isAddressEqual } from "viem";
-import { channelSlot } from "./services.ts";
 import * as Wallet from "./wallet.ts";
 
 const topUp = "0.05";
@@ -101,9 +100,9 @@ export function create(connected: Wallet.Wallet) {
         account,
         allowedChainIds: [Wallet.mach.chainId],
         channelStore: createJsonChannelStore({
-          delete: key => localStorage.removeItem(prefix + channelSlot(key)),
-          get: key => localStorage.getItem(prefix + channelSlot(key)) ?? undefined,
-          set: (key, value) => localStorage.setItem(prefix + channelSlot(key), value),
+          delete: key => localStorage.removeItem(prefix + key),
+          get: key => localStorage.getItem(prefix + key) ?? undefined,
+          set: (key, value) => localStorage.setItem(prefix + key, value),
         }),
         getClient: () => client,
         maxDeposit,
