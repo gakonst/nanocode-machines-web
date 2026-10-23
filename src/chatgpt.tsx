@@ -1,22 +1,23 @@
 import type { TurnBlock } from "nanocode-ts/client";
+import { Account, type Machine, Meter, Prompts, SignIn, useMachine } from "nanocode-ts/machines/react";
 import { Markdown, NanocodeProvider, type Skin, ToolCell, useActivity, useConversations, useTurns } from "nanocode-ts/react";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./clones/chatgpt.css";
-import { Account, type Block, CopyCode, createPicker, grouped, Meter, Prompts, seconds, SignIn, Suggestions, useComposer, useDismiss, useSidebar, useStick } from "./clones/chat.tsx";
+import { type Block, CopyCode, createPicker, grouped, machineParts, seconds, Suggestions, useComposer, useDismiss, useSidebar, useStick } from "./clones/chat.tsx";
 import { ArrowUp, Check, Chevron, Compose, Sidebar, Stop, Trash } from "./clones/icons.tsx";
-import * as Machine from "./machine.ts";
 import * as Machines from "./machines.ts";
 
 const picker = createPicker("nanocode.machines.chatgpt", Machines.models.codex);
 
-const setup = Machine.create({ history: "nanocode.machines.chatgpt", model: picker.take });
+const setup = Machines.setup("nanocode.machines.chatgpt", picker.take);
 
 picker.attach(setup.config);
 
 const skin: Skin = {
   icons: { cancelled: "–", completed: "✓", failed: "✕", running: "", yielded: "↻" },
   parts: {
+    ...machineParts("gpt"),
     body: () => ({ className: "gpt-cell-body" }),
     children: () => ({ className: "gpt-cell-children" }),
     code: () => ({ className: "gpt-pre" }),
@@ -102,7 +103,7 @@ function BlockView(props: { block: Block }) {
   return <p className="gpt-note" data-error={block.kind === "error"}>{block.text}</p>;
 }
 
-function Composer(props: { machine: Machine.Machine; onSend(): void }) {
+function Composer(props: { machine: Machine; onSend(): void }) {
   const composer = useComposer({ onSend: props.onSend, send: props.machine.submit });
 
   return (
@@ -126,15 +127,15 @@ function App() {
   const log = useStick(thread);
   const activity = useActivity();
   const { model } = picker.useModel();
-  const machine = Machine.useMachine(setup.runtime, model, { greet: false });
+  const machine = useMachine(setup.runtime, model, { greet: false });
 
   const waiting = activity.phase === "waiting" || activity.phase === "running" || (machine.working && !activity.busy);
   const newChat = () => { threads.create(); sidebar.close(); };
   const input = (
     <>
-      <Prompts machine={machine} prefix="gpt" />
-      {machine.connected ? <Composer machine={machine} onSend={log.pin} /> : <SignIn machine={machine} prefix="gpt" />}
-      {machine.spend && <Meter prefix="gpt" source={machine.spend} />}
+      <Prompts machine={machine} />
+      {machine.connected ? <Composer machine={machine} onSend={log.pin} /> : <SignIn machine={machine} />}
+      {machine.spend && <Meter chevron={<Chevron />} source={machine.spend} />}
     </>
   );
 
@@ -155,7 +156,7 @@ function App() {
             </div>
           ))}
         </nav>
-        <Account machine={machine} prefix="gpt" />
+        <Account machine={machine} />
       </aside>
       <div className="gpt-scrim" onClick={sidebar.toggle} />
       <main className="gpt-main">
@@ -198,7 +199,7 @@ function App() {
 }
 
 createRoot(document.getElementById("root")!).render(
-  <NanocodeProvider config={setup.config} highlight={Machine.highlight} skin={skin}>
+  <NanocodeProvider config={setup.config} highlight={Machines.highlight} skin={skin}>
     <App />
   </NanocodeProvider>,
 );

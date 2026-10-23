@@ -1,18 +1,14 @@
 import type { Config, ToolCell as Cell, TurnBlock } from "nanocode-ts/client";
-import { Code, useSend } from "nanocode-ts/react";
+import type { Models } from "nanocode-ts/machines";
+import type { Machine } from "nanocode-ts/machines/react";
+import { Code, type Skin, useSend } from "nanocode-ts/react";
 import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import * as Machine from "../machine.ts";
-import type * as Machines from "../machines.ts";
-import * as Payments from "../payments.ts";
-import { type Source, useSpend } from "../Spend.tsx";
-import * as Wallet from "../wallet.ts";
-import { Chevron } from "./icons.tsx";
 
 export type Block = TurnBlock | { kind: "tools"; cells: Cell[]; live: boolean };
 
 type Saved = { picked?: string; bound: Record<string, string> };
 
-export function createPicker(key: string, models: readonly Machines.Model[]) {
+export function createPicker(key: string, models: readonly Models.Model[]) {
   const listeners = new Set<() => void>();
   const storageKey = key + ":models";
   let config: Config | undefined;
@@ -31,13 +27,13 @@ export function createPicker(key: string, models: readonly Machines.Model[]) {
     for (const listener of listeners) listener();
   };
 
-  const current = (): Machines.Model => {
+  const current = (): Models.Model => {
     const conversation = config?.getState().conversation;
     const id = (conversation && saved.bound[conversation]) || saved.picked;
     return models.find(model => model.model === id) ?? models[0]!;
   };
 
-  const take = (): Machines.Model => {
+  const take = (): Models.Model => {
     const model = current();
     const conversation = config?.getState().conversation;
     if (conversation && !saved.bound[conversation]) {
@@ -206,30 +202,7 @@ export function useSidebar() {
   return { close: () => { if (!wide()) setOpen(false); }, open, toggle: () => setOpen(value => !value) };
 }
 
-export function SignIn(props: { machine: Machine.Machine; prefix: string }) {
-  const { machine, prefix } = props;
-
-  return (
-    <div className={prefix + "-signin"}>
-      <p>This chat is a nanocode agent in Code Mode. It pays for its model and every service its scripts call from your Tempo Wallet, in MACH over MPP. Sign in to approve a key that may spend {Machine.limits}.</p>
-      <button className={prefix + "-signin-button"} disabled={machine.working} onClick={() => void machine.command("/login", false)} type="button">{machine.working ? "Waiting for Tempo Wallet…" : "Sign in with Tempo"}</button>
-    </div>
-  );
-}
-
-export function Prompts(props: { machine: Machine.Machine; prefix: string }) {
-  const { checkout, device, open } = props.machine;
-  const link = device && (device.verificationUriFull ?? device.verificationUri);
-
-  return (
-    <>
-      {device && link && <p className={props.prefix + "-prompt"}>Approve in Tempo Wallet: <a href={link} onClick={open} rel="noreferrer" target="_blank">{link.replace(/^https:\/\//, "")}</a> · code <b>{device.userCode}</b></p>}
-      {checkout && <p className={props.prefix + "-prompt"}>Buy MACH in Tempo Wallet: <a href={checkout.url} onClick={open} rel="noreferrer" target="_blank">checkout for {Wallet.short(checkout.address)}</a></p>}
-    </>
-  );
-}
-
-export function Suggestions(props: { machine: Machine.Machine; prefix: string; suggestions: readonly string[] }) {
+export function Suggestions(props: { machine: Machine; prefix: string; suggestions: readonly string[] }) {
   const { cloud, machine, ready, working } = { ...props.machine, machine: props.machine };
 
   return (
@@ -239,59 +212,8 @@ export function Suggestions(props: { machine: Machine.Machine; prefix: string; s
   );
 }
 
-export function Account(props: { machine: Machine.Machine; prefix: string }) {
-  const { machine, prefix } = props;
-  const connected = machine.connected;
 
-  if (!connected) {
-    return (
-      <div className={prefix + "-account"}>
-        <button className={prefix + "-account-login"} disabled={machine.working} onClick={() => void machine.command("/login", false)} type="button">Sign in with Tempo</button>
-      </div>
-    );
-  }
-
-  return (
-    <div className={prefix + "-account"}>
-      <div className={prefix + "-account-who"}>
-        <span aria-hidden="true" className={prefix + "-account-avatar"}>{connected.address.slice(2, 4).toUpperCase()}</span>
-        <span><strong>{Wallet.short(connected.address)}</strong><small>{machine.detail}</small></span>
-      </div>
-      <div className={prefix + "-account-actions"}>
-        <button disabled={machine.working} onClick={() => void machine.command("/wallet", false)} type="button">Balance</button>
-        <button disabled={machine.working} onClick={() => void machine.command("/fund", false)} type="button">Add MACH</button>
-        <button disabled={machine.working} onClick={() => void machine.command("/logout", false)} type="button">Log out</button>
-      </div>
-    </div>
-  );
-}
-
-export function Meter(props: { prefix: string; source: Source }) {
-  const { ledger, rate, services } = useSpend(props.source, Payments.window);
-  const [open, setOpen] = useState(false);
-  const prefix = props.prefix;
-
-  return (
-    <div aria-label="Spend" className={prefix + "-meter"} data-open={open}>
-      <button aria-expanded={open} className={prefix + "-meter-head"} onClick={() => setOpen(!open)} type="button">
-        <span className={prefix + "-meter-bolt"}>⚡</span>
-        <span>{Wallet.format(ledger.total)} MACH · {ledger.calls} paid calls · {services.length} services · {Wallet.format(rate)} MACH/min</span>
-        <Chevron />
-      </button>
-      {open && (
-        <div className={prefix + "-meter-rows"}>
-          {services.length === 0 && <p className={prefix + "-meter-empty"}>Nothing paid yet. Each service shows up here as it charges.</p>}
-          {services.map(service => (
-            <p data-live={service.live} key={service.name}>
-              <span className={prefix + "-meter-dot"}>●</span>
-              <span className={prefix + "-meter-name"}>{service.name}</span>
-              <span className={prefix + "-meter-spark"}>{service.spark}</span>
-              <span>{Wallet.format(service.spent)} MACH</span>
-              <small>{service.calls} calls</small>
-            </p>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+export function machineParts(prefix: string): NonNullable<Skin["parts"]> {
+  const names = { account: "account", accountActions: "account-actions", accountAvatar: "account-avatar", accountLogin: "account-login", accountWho: "account-who", meter: "meter", meterBolt: "meter-bolt", meterDot: "meter-dot", meterEmpty: "meter-empty", meterHead: "meter-head", meterName: "meter-name", meterRows: "meter-rows", meterSpark: "meter-spark", prompt: "prompt", signIn: "signin", signInButton: "signin-button" } as const;
+  return Object.fromEntries(Object.entries(names).map(([part, name]) => [part, () => ({ className: prefix + "-" + name })]));
 }
