@@ -13,6 +13,7 @@ export function App() {
             This agent is the nanocode SDK, and it pays for its own model and every service it calls from your Tempo Wallet in MACH: by the token for the model, by the request for Tempo&apos;s paid APIs, over MPP sessions. Type /login to approve a Tempo access key for it, with a spending limit, for a day. It then runs in the cloud, in a Cloudflare Durable Object with subagents, so you can refresh or close this tab and it keeps working; this page reconnects to it. Type /local to keep it, and the key, in your browser instead. Its source is <a href="https://github.com/gakonst/nanocode-machines-web">gakonst/nanocode-machines-web</a>.
           </Lead>
           <Terminal />
+          <p>The same agent, logged in with the same Tempo Wallet key, also runs in a <a href="chatgpt">ChatGPT-style chat</a> and a <a href="claude">Claude-style chat</a>, so you can watch it pay for models and services from a familiar interface.</p>
           <p><a href="https://nanocode.xyz/docs/guides/mpp-payments">Read how nanocode-machines pays →</a></p>
         </Page>
       </Main>

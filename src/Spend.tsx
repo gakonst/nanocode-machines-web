@@ -5,8 +5,9 @@ import { format } from "./wallet.ts";
 
 const bars = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"] as const;
 
-export function Spend(props: { payments: Pick<Payments.Payments, "ledger" | "subscribe">; window: number }) {
-  const { payments, window } = props;
+export type Source = Pick<Payments.Payments, "ledger" | "subscribe">;
+
+export function useSpend(payments: Source, window: number) {
   const ledger = useSyncExternalStore(payments.subscribe, payments.ledger, payments.ledger);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -15,20 +16,22 @@ export function Spend(props: { payments: Pick<Payments.Payments, "ledger" | "sub
   }, []);
   const recent = ledger.services.flatMap(service => service.charges.filter(item => now - item.at < window));
   const rate = recent.reduce((sum, item) => sum + item.amount, 0n) * 60_000n / BigInt(window);
-  const services = [...ledger.services].sort((a, b) => a.spent === b.spent ? 0 : a.spent > b.spent ? -1 : 1);
+  const services = [...ledger.services].sort((a, b) => a.spent === b.spent ? 0 : a.spent > b.spent ? -1 : 1).map(service => ({ ...service, live: service.charges.some(item => now - item.at < 2000), spark: spark(service, now, window) }));
+  return { ledger, rate, services };
+}
+
+export function Spend(props: { payments: Source; window: number }) {
+  const { ledger, rate, services } = useSpend(props.payments, props.window);
   const width = Math.max(0, ...services.map(service => service.name.length));
   return (
     <div aria-label="Spend" {...styles.spend()}>
       <p {...styles.title()}><span {...styles.accent()}>⚡</span> {format(ledger.total)} MACH streamed · {ledger.calls} paid calls · {services.length} services · {format(rate)} MACH/min</p>
       {services.length === 0 && <p {...styles.empty()}>Nothing paid yet. Each service shows up here as it charges.</p>}
-      {services.map(service => {
-        const live = service.charges.some(item => now - item.at < 2000);
-        return (
-          <p key={service.name}>
-            <span {...styles.dot({ live })}>●</span> {service.name.padEnd(width)} <span {...styles.spark()}>{spark(service, now, window)}</span> {format(service.spent).padStart(10)} MACH <span {...styles.calls()}>{service.calls} calls</span>
-          </p>
-        );
-      })}
+      {services.map(service => (
+        <p key={service.name}>
+          <span {...styles.dot({ live: service.live })}>●</span> {service.name.padEnd(width)} <span {...styles.spark()}>{service.spark}</span> {format(service.spent).padStart(10)} MACH <span {...styles.calls()}>{service.calls} calls</span>
+        </p>
+      ))}
     </div>
   );
 }
