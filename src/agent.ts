@@ -1,5 +1,5 @@
 import sqlite3InitModule, { type Database } from "@sqlite.org/sqlite-wasm";
-import { AgentRuntime, LocalHand, type LoggedEvent, sessionUuid, type SqlHost, type SqlValue, type TurnReport } from "nanocode-ts";
+import { AgentRuntime, type LoggedEvent, sessionUuid, type SqlHost, type SqlValue, type TurnReport } from "nanocode-ts";
 import { Bash, SqlFileSystem } from "nanocode-ts/bash";
 import wasm from "nanocode-ts/nanocode_wasm.wasm?url";
 
@@ -59,7 +59,7 @@ export async function create(options: Options): Promise<Agent> {
       thinking: model.thinking,
       workspace: shell.cwd,
     },
-    { dispatch: (request, signal) => model.dispatch(request, signal), remote: new LocalHand({ bash: shell, fetch: options.fetch }), workspace: shell.workspace() },
+    { dispatch: (request, signal) => model.dispatch(request, signal), fetch: options.fetch, workspace: shell.workspace() },
   );
 
   async function submit(prompt: string) {
