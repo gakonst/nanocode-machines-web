@@ -1,4 +1,4 @@
-import { createConfig, type Entry, liveEvent } from "nanocode-ts/client";
+import { createConfig, type Entry, liveEvent, type Transport } from "nanocode-ts/client";
 import { useConfig, useConversations, useSend } from "nanocode-ts/react";
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import type * as Agent from "./agent.ts";
@@ -30,13 +30,16 @@ export type Machine = ReturnType<typeof useMachine>;
 
 export function create(options: { history: string; model: () => Machines.Model }) {
   const runtime: Runtime = { cloud: Cloud.restore(), model: options.model };
+  const resume: Transport["resume"] = async ({ push, note, signal }) => {
+    if (runtime.cloud?.open) await Cloud.resume(runtime.cloud, handlers(push, note), signal);
+  };
   const config = createConfig({
     history: { key: options.history },
     keep: 300,
     revealMs: 0,
     transport: {
-      async send({ prompt, push, note }) {
-        if (runtime.cloud) return Cloud.ask(runtime.cloud, prompt, handlers(push, note), runtime.model());
+      async send({ prompt, push, note, signal }) {
+        if (runtime.cloud) return Cloud.ask(runtime.cloud, prompt, handlers(push, note), runtime.model(), signal);
         if (!runtime.agent) throw new Error("The agent is still loading.");
         if (!(await runtime.agent.ask(prompt))) throw new Error("The turn has no result.");
       },
@@ -48,11 +51,8 @@ export function create(options: { history: string; model: () => Machines.Model }
         }
         return await runtime.agent?.steer(prompt) === "steered";
       },
-      async resume({ push, note }) {
-        const saved = Cloud.restore();
-        if (!saved?.open) return;
-        note("tool", "Reconnecting to the turn that kept running in the cloud while this tab was closed.");
-        await Cloud.resume(saved, handlers(push, note));
+      get resume() {
+        return runtime.cloud ? resume : undefined;
       },
       restore(saved) {
         if (runtime.cloud) Cloud.adopt(runtime.cloud, saved);

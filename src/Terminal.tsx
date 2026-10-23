@@ -44,7 +44,7 @@ Terminal.Agent = function Agent(props: { runtime: Machine.Runtime }) {
       onSubmit={submit}
       placeholder={!connected ? "Type /login to connect your Tempo Wallet" : undefined}
       status={status}
-      suggestions={(connected ? Machines.suggestions : ["/login"]).map(suggestion => ({ label: suggestion, onClick: () => submit(suggestion), disabled: working || (!!connected && ((!ready && !cloud) || busy)) }))}
+      suggestions={(connected ? Machines.suggestions : ["/login"]).map(suggestion => ({ label: suggestion, onClick: () => submit(suggestion), disabled: working || (!!connected && !ready && !cloud) }))}
     />
   );
 };

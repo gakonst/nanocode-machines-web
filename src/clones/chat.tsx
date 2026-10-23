@@ -230,11 +230,11 @@ export function Prompts(props: { machine: Machine.Machine; prefix: string }) {
 }
 
 export function Suggestions(props: { machine: Machine.Machine; prefix: string; suggestions: readonly string[] }) {
-  const { busy, cloud, machine, ready, working } = { ...props.machine, machine: props.machine };
+  const { cloud, machine, ready, working } = { ...props.machine, machine: props.machine };
 
   return (
     <div className={props.prefix + "-suggestions"}>
-      {props.suggestions.map(suggestion => <button disabled={working || busy || (!ready && !cloud)} key={suggestion} onClick={() => machine.submit(suggestion)} type="button">{suggestion}</button>)}
+      {props.suggestions.map(suggestion => <button disabled={working || (!ready && !cloud)} key={suggestion} onClick={() => machine.submit(suggestion)} type="button">{suggestion}</button>)}
     </div>
   );
 }
