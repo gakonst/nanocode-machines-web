@@ -3,6 +3,7 @@ import { createJsonChannelStore, Mppx, tempo as payments } from "mppx/client";
 import { type Address, type Hex, isAddressEqual } from "viem";
 import { Account, createClient, http } from "viem/tempo";
 import { tempo } from "viem/tempo/chains";
+import * as Mcp from "../src/mcp.ts";
 import type { Env } from "./env.ts";
 
 export const MACH: Address = "0x20c000000000000000000000f37de3740adec032";
@@ -155,13 +156,24 @@ export class Wallet extends DurableObject<Env> {
 
   private receipt(url: string, text: string) {
     let parsed: { channelId?: string; intent?: string; spent?: string };
-    try { parsed = JSON.parse(text); } catch { return; }
-    if (parsed.intent !== "session" || !parsed.channelId || parsed.spent === undefined) return;
+    try { parsed = JSON.parse(text); } catch { return false; }
+    if (parsed.intent !== "session" || !parsed.channelId || parsed.spent === undefined) return false;
     const key = `seen:${parsed.channelId}`;
     const before = BigInt(this.ctx.storage.kv.get<string>(key) ?? "0");
     const spent = BigInt(parsed.spent);
     this.ctx.storage.kv.put(key, spent.toString());
     this.charge(url, spent - before);
+    return true;
+  }
+
+  private async tool(call: Mcp.Call | undefined, response: Response) {
+    if (!call) return;
+    const result = await Mcp.outcome(response);
+    this.describe(call.url, result.description ?? call.challenge?.description);
+    if (result.required || !call.challenge) return;
+    this.count(call.url);
+    if (call.challenge.intent === "charge") return this.charge(call.url, BigInt(call.challenge.request?.amount ?? "0"));
+    if (result.receipt) this.receipt(call.url, JSON.stringify(result.receipt));
   }
 
   private metered(url: string, body: ReadableStream<Uint8Array>) {
@@ -192,8 +204,14 @@ export class Wallet extends DurableObject<Env> {
     const prefix = `channel:${record.keyAddress.toLowerCase()}:`;
     const mppx = Mppx.create({
       fetch: async (input, init) => {
-        const response = await fetch(input, init);
         const url = String(input instanceof Request ? input.url : input);
+        if (Mcp.server(url)) {
+          const call = await Mcp.call(input, init);
+          const response = await fetch(input, init);
+          await this.tool(call, response);
+          return response;
+        }
+        const response = await fetch(input, init);
         if (response.status === 402) {
           this.describe(url, response.headers.get("www-authenticate")?.match(/description="([^"]*)"/)?.[1]);
           return response;
@@ -234,6 +252,7 @@ export class Wallet extends DurableObject<Env> {
     });
     mppx.onPaymentResponse(payment => {
       const url = String(payment.input instanceof Request ? payment.input.url : payment.input);
+      if (Mcp.server(url)) return;
       this.describe(url, (payment.challenge as { description?: string }).description);
       if (payment.challenge.intent !== "charge") return;
       const request = payment.challenge.request as { amount?: string };
@@ -249,7 +268,7 @@ export class Wallet extends DurableObject<Env> {
     if (!target || (pathname !== "/model" && pathname !== "/pay")) return Response.json({ error: "not_found" }, { status: 404 });
     const headers = JSON.parse(request.headers.get("x-headers") ?? "[]") as [string, string][];
     const method = request.headers.get("x-method") ?? request.method;
-    const body = method === "GET" || method === "HEAD" ? undefined : await request.arrayBuffer();
+    const body = method === "GET" || method === "HEAD" ? undefined : Mcp.server(target) ? await request.text() : await request.arrayBuffer();
     try {
       const payer = await this.pay();
       return await payer.fetch(target, { method, headers, body, signal: request.signal, context: { depositRaw: OPENING } });

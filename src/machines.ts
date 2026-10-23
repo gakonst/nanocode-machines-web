@@ -1,5 +1,6 @@
 import type * as Agent from "./agent.ts";
 import type * as Payments from "./payments.ts";
+import * as Mcp from "./mcp.ts";
 import * as Services from "./services.ts";
 import * as Wallet from "./wallet.ts";
 
@@ -28,6 +29,7 @@ export const instructions = [
   Services.code,
   "Scripts run in the visitor's browser, so a service must allow cross-origin requests; every https://<name>.mpp.tempo.xyz service does. The services:",
   ...Services.services,
+  Services.mcp,
   "Spawn subagents when the visitor wants many things written at once; their model requests are paid the same way.",
   "Answer in a few short lines. When a turn used several services, end with a compact table of service, calls and what came back.",
 ].join("\n");
@@ -36,7 +38,7 @@ export const suggestions = ["Set every paid service on fire for a minute", "Pain
 
 export function agent(payments: Payments.Payments, chosen: Model = luna) {
   const model: Agent.Model = {
-    dispatch: (request, signal) => payments.fetch(request.endpoint, { body: request.body as Uint8Array<ArrayBuffer>, headers: request.headers, method: "POST", signal }).catch((error: unknown) => {
+    dispatch: (request, signal) => payments.fetch(request.endpoint, { body: Mcp.body(request), headers: request.headers, method: request.method, signal }).catch((error: unknown) => {
       throw explain(error);
     }),
     endpoint: chosen.provider === "claude" ? anthropic : endpoint,
