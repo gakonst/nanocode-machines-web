@@ -1,22 +1,23 @@
 import type { TurnBlock } from "nanocode-ts/client";
+import { Account, type Machine, Meter, Prompts, SignIn, useMachine } from "nanocode-ts/machines/react";
 import { Markdown, NanocodeProvider, type Skin, ToolCell, useActivity, useConversations, useTurns } from "nanocode-ts/react";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./clones/claude.css";
-import { Account, type Block, CopyCode, createPicker, greeting, grouped, Meter, Prompts, seconds, SignIn, Suggestions, useComposer, useDismiss, useSidebar, useStick } from "./clones/chat.tsx";
+import { type Block, CopyCode, createPicker, greeting, grouped, machineParts, seconds, Suggestions, useComposer, useDismiss, useSidebar, useStick } from "./clones/chat.tsx";
 import { ArrowUp, Check, Chevron, Plus, Sidebar, Stop, Trash } from "./clones/icons.tsx";
-import * as Machine from "./machine.ts";
 import * as Machines from "./machines.ts";
 
 const picker = createPicker("nanocode.machines.claude", Machines.models.claude);
 
-const setup = Machine.create({ history: "nanocode.machines.claude", model: picker.take });
+const setup = Machines.setup("nanocode.machines.claude", picker.take);
 
 picker.attach(setup.config);
 
 const skin: Skin = {
   icons: { cancelled: "–", completed: "✓", failed: "!", running: "", yielded: "↻" },
   parts: {
+    ...machineParts("cl"),
     body: () => ({ className: "cl-cell-body" }),
     children: () => ({ className: "cl-cell-children" }),
     code: () => ({ className: "cl-pre" }),
@@ -81,7 +82,7 @@ function BlockView(props: { block: Block }) {
   return <p className="cl-note" data-error={block.kind === "error"}>{block.text}</p>;
 }
 
-function Composer(props: { machine: Machine.Machine; onSend(): void }) {
+function Composer(props: { machine: Machine; onSend(): void }) {
   const composer = useComposer({ onSend: props.onSend, send: props.machine.submit });
 
   return (
@@ -108,7 +109,7 @@ function App() {
   const log = useStick(thread);
   const activity = useActivity();
   const { model } = picker.useModel();
-  const machine = Machine.useMachine(setup.runtime, model, { greet: false });
+  const machine = useMachine(setup.runtime, model, { greet: false });
   const busy = activity.busy || machine.working;
   const title = threads.conversations.find(item => item.id === threads.current)?.title;
 
@@ -116,9 +117,9 @@ function App() {
   const newChat = () => { threads.create(); sidebar.close(); };
   const input = (
     <>
-      <Prompts machine={machine} prefix="cl" />
-      {machine.connected ? <Composer machine={machine} onSend={log.pin} /> : <SignIn machine={machine} prefix="cl" />}
-      {machine.spend && <Meter prefix="cl" source={machine.spend} />}
+      <Prompts machine={machine} />
+      {machine.connected ? <Composer machine={machine} onSend={log.pin} /> : <SignIn machine={machine} />}
+      {machine.spend && <Meter chevron={<Chevron />} source={machine.spend} />}
     </>
   );
 
@@ -139,7 +140,7 @@ function App() {
             </div>
           ))}
         </nav>
-        <Account machine={machine} prefix="cl" />
+        <Account machine={machine} />
       </aside>
       <div className="cl-scrim" onClick={sidebar.toggle} />
       <main className="cl-main">
@@ -182,7 +183,7 @@ function App() {
 }
 
 createRoot(document.getElementById("root")!).render(
-  <NanocodeProvider config={setup.config} highlight={Machine.highlight} skin={skin}>
+  <NanocodeProvider config={setup.config} highlight={Machines.highlight} skin={skin}>
     <App />
   </NanocodeProvider>,
 );

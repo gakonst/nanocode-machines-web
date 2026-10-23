@@ -1,27 +1,8 @@
-import type * as Agent from "./agent.ts";
-import type * as Payments from "./payments.ts";
-import * as Mcp from "./mcp.ts";
+import { createMachine, Models } from "nanocode-ts/machines";
+import wasm from "nanocode-ts/nanocode_wasm.wasm?url";
 import * as Services from "./services.ts";
-import * as Wallet from "./wallet.ts";
 
-export const endpoint = "https://openai.mpp.tempo.xyz/v1";
-
-export const anthropic = "https://anthropic.mpp.tempo.xyz/v1/messages";
-
-export type Model = { about: string; label: string; model: string; provider: "claude" | "codex"; thinking: "low" };
-
-export const models = {
-  claude: [
-    { about: "Fastest for quick answers", label: "Haiku 5.5", model: "claude-haiku-5-5", provider: "claude", thinking: "low" },
-    { about: "Smart, efficient model for everyday use", label: "Sonnet 5.5", model: "claude-sonnet-5-5", provider: "claude", thinking: "low" },
-  ],
-  codex: [
-    { about: "Fast for everyday questions", label: "Luna", model: "gpt-6-luna", provider: "codex", thinking: "low" },
-    { about: "Thinks longer for harder problems", label: "Sol", model: "gpt-6.1-sol", provider: "codex", thinking: "low" },
-  ],
-} as const satisfies Record<string, readonly Model[]>;
-
-export const luna: Model = models.codex[0];
+export const models = Models.models;
 
 export const instructions = [
   "You are the demo agent at nanocode.xyz/machines: the nanocode SDK compiled to WebAssembly, running in the visitor's browser.",
@@ -36,26 +17,15 @@ export const instructions = [
 
 export const suggestions = ["Set every paid service on fire for a minute", "Paint a neon waterfall of coins", "What's the latest block on Tempo?"];
 
-export function agent(payments: Payments.Payments, chosen: Model = luna) {
-  const model: Agent.Model = {
-    dispatch: (request, signal) => payments.fetch(request.endpoint, { body: Mcp.body(request), headers: request.headers, method: request.method, signal }).catch((error: unknown) => {
-      throw explain(error);
-    }),
-    endpoint: chosen.provider === "claude" ? anthropic : endpoint,
-    model: chosen.model,
-    provider: chosen.provider,
-    subagents: true,
-    thinking: chosen.thinking,
-  };
+export const highlight = () => import("nanocode-ts/highlight").then(module => module.highlight);
 
-  return { fetch: payments.fetch, model };
-}
-
-export function explain(error: unknown) {
-  const text = error instanceof Error ? error.message : String(error);
-  if (/insufficient funds for gas/.test(text) || (/InsufficientBalance/.test(text) && text.toLowerCase().includes(Wallet.usdc.address))) return new Error(`Publishing the key needs a little ${Wallet.usdc.symbol} for its fee, and your wallet holds too little. Add ${Wallet.usdc.symbol} in Tempo Wallet, then type /login again.`, { cause: error });
-  if (/InsufficientBalance/.test(text)) return new Error("Your Tempo Wallet holds too little MACH for this payment. Type /fund to buy MACH, then ask again.", { cause: error });
-  if (/SpendingLimitExceeded/.test(text)) return new Error("The key's limit is spent. Type /logout, then /login to approve another key.", { cause: error });
-  if (/keyAuthorization is not allowed/.test(text)) return new Error("The key is not on Tempo yet. Type /login to publish it.", { cause: error });
-  return error instanceof Error ? error : new Error(text);
+export function setup(history: string, model: () => Models.Model) {
+  return createMachine({
+    history,
+    instructions,
+    model,
+    sqlite: () => import("@sqlite.org/sqlite-wasm").then(module => module.default()),
+    suggestion: suggestions[0],
+    wasm: () => WebAssembly.compileStreaming(fetch(wasm)),
+  });
 }
