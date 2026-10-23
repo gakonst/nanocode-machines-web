@@ -72,10 +72,14 @@ export async function status(cloud: Cloud) {
   return await response.json() as { calls?: Record<string, number>; spent: Record<string, string> };
 }
 
-async function follow(cloud: Cloud, response: Response, request: string, handlers: Handlers): Promise<boolean> {
-  if (!response.ok || !response.body) throw await failure(response);
+async function follow(cloud: Cloud, response: Response, request: string, handlers: Handlers, signal?: AbortSignal): Promise<boolean> {
+  if (!response.ok || !response.body) {
+    if (signal?.aborted) return true;
+    throw await failure(response);
+  }
   try {
     for await (const message of serverEvents(response.body)) {
+      if (signal?.aborted) break;
       if (message.id) {
         cloud.cursor = Number(message.id);
         save(cloud);
@@ -93,45 +97,67 @@ async function follow(cloud: Cloud, response: Response, request: string, handler
       if (body.type === "result") return true;
     }
   } catch {
-    return false;
+    return Boolean(signal?.aborted);
   }
-  return false;
+  if (signal?.aborted) void response.body.cancel().catch(() => undefined);
+  return Boolean(signal?.aborted);
 }
 
-async function reconnect(cloud: Cloud, request: string, handlers: Handlers) {
-  for (;;) {
-    const response = await fetch(`sessions/${encodeURIComponent(cloud.session)}/events?after=${cloud.cursor}`, { headers: headers(cloud, { accept: "text/event-stream" }) }).catch(() => undefined);
+function pause(signal?: AbortSignal) {
+  return new Promise<void>(resolve => {
+    const timer = setTimeout(done, reconnectMs);
+    function done() {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    }
+    signal?.addEventListener("abort", done);
+  });
+}
+
+async function reconnect(cloud: Cloud, session: string, request: string, handlers: Handlers, signal?: AbortSignal) {
+  while (!signal?.aborted) {
+    const response = await fetch(`sessions/${encodeURIComponent(session)}/events?after=${cloud.cursor}`, { headers: headers(cloud, { accept: "text/event-stream" }), signal }).catch(() => undefined);
     if (response?.status === 401 || response?.status === 403) throw await failure(response);
-    if (response && await follow(cloud, response, request, handlers)) return;
-    await new Promise(resolve => setTimeout(resolve, reconnectMs));
+    if (response && await follow(cloud, response, request, handlers, signal)) return;
+    await pause(signal);
   }
 }
 
-export async function ask(cloud: Cloud, prompt: string, handlers: Handlers, model: Model = luna) {
+export async function ask(cloud: Cloud, prompt: string, handlers: Handlers, model: Model = luna, signal?: AbortSignal) {
   const request = `turn-${crypto.randomUUID()}`;
+  const session = cloud.session;
   cloud.open = request;
   save(cloud);
   try {
-    const response = await fetch(`sessions/${encodeURIComponent(cloud.session)}/turns?after=${cloud.cursor}`, {
+    const response = await fetch(`sessions/${encodeURIComponent(session)}/turns?after=${cloud.cursor}`, {
       body: JSON.stringify({ model: model.model, prompt, provider: model.provider, request_id: request, thinking: model.thinking }),
       headers: headers(cloud, { accept: "text/event-stream", "content-type": "application/json" }),
       method: "POST",
+      signal,
+    }).catch((error: unknown) => {
+      if (signal?.aborted) return undefined;
+      throw error;
     });
-    if (!(await follow(cloud, response, request, handlers))) await reconnect(cloud, request, handlers);
+    if (response && !(await follow(cloud, response, request, handlers, signal))) await reconnect(cloud, session, request, handlers, signal);
   } finally {
-    cloud.open = undefined;
-    save(cloud);
+    if (!signal?.aborted) {
+      cloud.open = undefined;
+      save(cloud);
+    }
   }
 }
 
-export async function resume(cloud: Cloud, handlers: Handlers) {
+export async function resume(cloud: Cloud, handlers: Handlers, signal?: AbortSignal) {
   const request = cloud.open;
   if (!request) return;
   try {
-    await reconnect(cloud, request, handlers);
+    await reconnect(cloud, cloud.session, request, handlers, signal);
   } finally {
-    cloud.open = undefined;
-    save(cloud);
+    if (!signal?.aborted) {
+      cloud.open = undefined;
+      save(cloud);
+    }
   }
 }
 
