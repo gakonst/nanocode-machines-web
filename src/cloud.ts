@@ -9,6 +9,10 @@ const reconnectMs = 1000;
 
 export type Cloud = { address: string; cursor: number; expiresAt: number; open?: string; session: string; token: string };
 
+export type Model = { model: string; provider: "claude" | "codex"; thinking: string };
+
+const luna: Model = { model: "gpt-6-luna", provider: "codex", thinking: "low" };
+
 export type Handlers = { event: (logged: LoggedEvent) => void; interrupted: () => void };
 
 export function restore(): Cloud | undefined {
@@ -103,13 +107,13 @@ async function reconnect(cloud: Cloud, request: string, handlers: Handlers) {
   }
 }
 
-export async function ask(cloud: Cloud, prompt: string, handlers: Handlers) {
+export async function ask(cloud: Cloud, prompt: string, handlers: Handlers, model: Model = luna) {
   const request = `turn-${crypto.randomUUID()}`;
   cloud.open = request;
   save(cloud);
   try {
     const response = await fetch(`sessions/${encodeURIComponent(cloud.session)}/turns?after=${cloud.cursor}`, {
-      body: JSON.stringify({ model: "gpt-6-luna", prompt, provider: "codex", request_id: request, thinking: "low" }),
+      body: JSON.stringify({ model: model.model, prompt, provider: model.provider, request_id: request, thinking: model.thinking }),
       headers: headers(cloud, { accept: "text/event-stream", "content-type": "application/json" }),
       method: "POST",
     });
@@ -131,9 +135,9 @@ export async function resume(cloud: Cloud, handlers: Handlers) {
   }
 }
 
-export async function steer(cloud: Cloud, prompt: string): Promise<"queued" | "steered"> {
+export async function steer(cloud: Cloud, prompt: string, model: Model = luna): Promise<"queued" | "steered"> {
   const response = await fetch(`sessions/${encodeURIComponent(cloud.session)}/turns`, {
-    body: JSON.stringify({ model: "gpt-6-luna", prompt, provider: "codex", request_id: `steer-${crypto.randomUUID()}`, steer: true }),
+    body: JSON.stringify({ model: model.model, prompt, provider: model.provider, request_id: `steer-${crypto.randomUUID()}`, steer: true }),
     headers: headers(cloud, { "content-type": "application/json" }),
     method: "POST",
   });
