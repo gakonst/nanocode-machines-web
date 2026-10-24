@@ -16,7 +16,7 @@ export const instructions = [
   "Answer in a few short lines. When a turn used several services, end with a compact table of service, calls and what came back.",
 ].join("\n");
 
-export const suggestions = ["Set every paid service on fire for a minute", "Paint a neon waterfall of coins", "What's the latest block on Tempo?"];
+export const suggestions = ["Call every paid service once in parallel, spending at most $0.05 in total", "Paint a neon waterfall of coins", "What's the latest block on Tempo?"];
 
 export const highlight = () => import("nanocode-ts/highlight").then(module => module.highlight);
 
