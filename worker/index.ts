@@ -8,6 +8,7 @@ const machines = createMachines({
     "The services:",
     ...Services.services,
     Services.mcp,
+    Services.search,
     "Answer in a few short lines.",
   ].join("\n"),
 });

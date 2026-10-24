@@ -11,6 +11,7 @@ export const instructions = [
   "Scripts run in the visitor's browser, so a service must allow cross-origin requests; every https://<name>.mpp.tempo.xyz service does. The services:",
   ...Services.services,
   Services.mcp,
+  Services.search,
   "Spawn subagents when the visitor wants many things written at once; their model requests are paid the same way.",
   "Answer in a few short lines. When a turn used several services, end with a compact table of service, calls and what came back.",
 ].join("\n");
