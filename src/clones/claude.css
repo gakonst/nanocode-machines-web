@@ -371,3 +371,10 @@ a { color: inherit; }
 .cl-meter-empty { display: block !important; font-style: italic; opacity: 0.7; }
 
 .cl-note { overflow-wrap: anywhere; }
+
+.nc-site { display: none; }
+[data-xframe] .nc-site { display: inline; }
+[data-xframe] .nc-about { display: none; }
+[data-xframe] .cl-hero { padding-bottom: 0; }
+[data-xframe] .cl-hero h1 { font-size: 24px; margin-bottom: 16px; }
+[data-xframe] .nc-prompt:nth-child(n+3) { display: none; }

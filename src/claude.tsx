@@ -99,7 +99,7 @@ function Composer(props: { machine: Machine; onSend(): void }) {
 }
 
 function Footer() {
-  return <p className="cl-foot">Claude-style nanocode machines: every model call and paid fetch is paid from your Tempo Wallet over MPP · <a href="./">nanocode machines</a></p>;
+  return <p className="cl-foot"><span className="nc-about">Claude-style nanocode machines: every model call and paid fetch is paid from your Tempo Wallet over MPP · <a href="./">nanocode machines</a></span><span className="nc-site"><a href="https://nanocode.xyz/" rel="noreferrer" target="_blank">nanocode.xyz →</a></span></p>;
 }
 
 function App() {
