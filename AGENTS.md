@@ -30,7 +30,7 @@ A suggestion that spends from the wallet names its budget: on 2026-10-24 gpt-5.6
   - `/login` approves a key in Tempo Wallet, or reuses an approved one, then publishes it and reports the MACH balance;
   - `/wallet` reads the balances and what the key may still spend;
   - `/fund` opens MACH checkout;
-  - `/logout` revokes the key in Tempo Wallet and forgets it, and says so when the wallet did not revoke it;
+  - `/logout` has this site's Worker delete the key it holds for `/cloud` (`DELETE v1/keys`), then revokes the key in Tempo Wallet and forgets it, and says so when the wallet did not revoke it;
   - `/help` lists the commands.
 
   Prompts before a login answer with the next step, and payment failures name their fix (`explain` in `src/machines.ts`).
@@ -66,6 +66,7 @@ A suggestion that spends from the wallet names its budget: on 2026-10-24 gpt-5.6
   - With an approved test key, `/login` built the publication transaction with its key authorization and USDC.e fee. The RPC refused it for lack of USDC.e ("have 0 want 1169"), which the page reports as a missing fee.
 - On 2026-10-21 the wallet's owner logged in at nanocode.xyz/machines/ with a real Tempo Wallet. They published the key and ran paid turns, so login, publication and MPP payments work end to end.
 - Real payments spend the visitor's MACH.
+- Paid flows can be driven end to end without a funded wallet: run the Worker under `wrangler dev` from an entry that sets `PROXIES["api.openai.com"]` and `PROXIES["api.anthropic.com"]` (from `nanocode-ts/machines/cloudflare`) and the gateway entry of `Mcp.servers` (from `nanocode-ts/machines`) to local shims, with `TEMPO_RPC` pointing at a stub RPC that answers AccountKeychain `getKey` and the gas and fee reads mppx makes to sign channel opens, top-ups and vouchers; the shims answer unpaid requests with MPP session challenges, accept any credential and return receipts with a per-channel `spent`. In the browser, an init script that sends https://rpc.tempo.xyz requests to the stub and seeds `nanocode.machines.wallet` logs the page in. On 2026-10-24 that way, Luna and Haiku turns opened a channel, topped it up and paid models, gateway kv, bucket and compute tools (direct and through `call_tool`) and Mercator search, and `/v1/me` and the clones' meters matched the shims' ledger to the unit; `/logout` made the Worker answer 401 for the token, and an expired key's token answered 401.
 - Develop with `npm install` and `npm run dev`, and check with `npm run check` and `npm run build`. Do not add code comments, README files or tests. Keep logs and other artifacts in ignored `output/`.
 
 - nanocode-ts is pinned to a commit (`"nanocode-ts": "github:gakonst/nanocode-ts#<full sha>"`), not a release tarball. Move it with `npm install github:gakonst/nanocode-ts#<full sha>` right after the nanocode-ts change lands: its prepare script fetches the prebuilt WASM for that commit's fingerprint and builds only the TypeScript, so there is no release to wait for.
