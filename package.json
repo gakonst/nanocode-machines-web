@@ -14,7 +14,7 @@
   "dependencies": {
     "@pierre/highlights": "0.2.0",
     "@sqlite.org/sqlite-wasm": "3.54.1-build1",
-    "nanocode-ts": "github:gakonst/nanocode-ts#4b019717ddf6154b8a2a1c7fd42acdfe700cddec",
+    "nanocode-ts": "github:gakonst/nanocode-ts#80e7d2d26145d927a32fb4361462672838242676",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "zyzz": "0.0.40"
