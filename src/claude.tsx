@@ -1,4 +1,5 @@
 import { Account, Meter, Prompts, SignIn, useMachine } from "nanocode-ts/machines/react";
+import { NanocodeProvider } from "nanocode-ts/react";
 import { Claude } from "nanocode-ts/react/clones";
 import { createRoot } from "react-dom/client";
 import "./clones/claude.css";
@@ -43,4 +44,5 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+// useMachine reads the config, so App renders inside a provider too.
+createRoot(document.getElementById("root")!).render(<NanocodeProvider config={setup.config}><App /></NanocodeProvider>);
