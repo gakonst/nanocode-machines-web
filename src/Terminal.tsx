@@ -1,4 +1,4 @@
-import { Chat, NanocodeProvider } from "nanocode-ts/react";
+import { Chat, HandConnect, NanocodeProvider } from "nanocode-ts/react";
 import { skin } from "nanocode-ts/react/skin";
 import { commands, Models } from "nanocode-ts/machines";
 import { Prompts, Spend, useMachine } from "nanocode-ts/machines/react";
@@ -19,13 +19,14 @@ export function Terminal() {
 
 Terminal.Agent = function Agent(props: { runtime: ReturnType<typeof Machines.setup>["runtime"] }) {
   const machine = useMachine(props.runtime, model());
-  const { busy, cloud, connected, ready, spend, status, submit, working } = machine;
+  const { busy, connected, hand, ready, spend, status, submit, working } = machine;
 
   return (
     <Chat
       activity={working && !busy ? { who: "wallet", text: "is working" } : undefined}
       commands={commands}
       extras={<>
+        {ready && <HandConnect hand={hand} />}
         <Prompts machine={machine} />
         {spend && <Spend source={spend} />}
       </>}
@@ -33,7 +34,7 @@ Terminal.Agent = function Agent(props: { runtime: ReturnType<typeof Machines.set
       onSubmit={submit}
       placeholder={!connected ? "Type /login to connect your Tempo Wallet" : undefined}
       status={status}
-      suggestions={(connected ? Machines.suggestions : ["/login"]).map(suggestion => ({ label: suggestion, onClick: () => submit(suggestion), disabled: working || (!!connected && !ready && !cloud) }))}
+      suggestions={(connected ? Machines.suggestions : ["/login"]).map(suggestion => ({ label: suggestion, onClick: () => submit(suggestion), disabled: working || (!!connected && !ready) }))}
     />
   );
 };

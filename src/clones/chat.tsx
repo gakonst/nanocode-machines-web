@@ -67,11 +67,11 @@ export function createPicker(key: string, models: readonly Models.Model[]) {
 }
 
 export function Suggestions(props: { machine: Machine; prefix: string; suggestions: readonly string[] }) {
-  const { cloud, machine, ready, working } = { ...props.machine, machine: props.machine };
+  const { machine, ready, working } = { ...props.machine, machine: props.machine };
 
   return (
     <div className={props.prefix + "-suggestions"}>
-      {props.suggestions.map(suggestion => <button disabled={working || (!ready && !cloud)} key={suggestion} onClick={() => machine.submit(suggestion)} type="button">{suggestion}</button>)}
+      {props.suggestions.map(suggestion => <button disabled={working || !ready} key={suggestion} onClick={() => machine.submit(suggestion)} type="button">{suggestion}</button>)}
     </div>
   );
 }
