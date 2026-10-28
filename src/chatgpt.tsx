@@ -18,7 +18,7 @@ const Chevron = () => <svg aria-hidden="true" fill="none" height={16} stroke="cu
 
 function App() {
   const { bound, choose, model, models } = picker.useModel();
-  const machine = useMachine(setup.runtime, model, { greet: false });
+  const machine = useMachine(setup.runtime, { greet: false, model });
 
   return (
     <ChatGpt

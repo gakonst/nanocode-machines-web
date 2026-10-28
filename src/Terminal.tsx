@@ -1,6 +1,6 @@
 import { Chat, HandConnect, NanocodeProvider } from "nanocode-ts/react";
 import { skin } from "nanocode-ts/react/skin";
-import { commands, Models } from "nanocode-ts/machines";
+import { Machine, Models } from "nanocode-ts/machines";
 import { Prompts, Spend, useMachine } from "nanocode-ts/machines/react";
 import { useState } from "react";
 import * as Machines from "./machines.ts";
@@ -18,13 +18,13 @@ export function Terminal() {
 }
 
 Terminal.Agent = function Agent(props: { runtime: ReturnType<typeof Machines.setup>["runtime"] }) {
-  const machine = useMachine(props.runtime, model());
+  const machine = useMachine(props.runtime, { model: model() });
   const { busy, connected, hand, ready, spend, status, submit, working } = machine;
 
   return (
     <Chat
       activity={working && !busy ? { who: "wallet", text: "is working" } : undefined}
-      commands={commands}
+      commands={Machine.commands}
       extras={<>
         {ready && <HandConnect hand={hand} />}
         <Prompts machine={machine} />

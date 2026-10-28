@@ -1,6 +1,6 @@
 import type { Config } from "nanocode-ts/client";
 import type { Models } from "nanocode-ts/machines";
-import type { Machine } from "nanocode-ts/machines/react";
+import type { useMachine } from "nanocode-ts/machines/react";
 import type { Skin } from "nanocode-ts/react";
 import { useSyncExternalStore } from "react";
 
@@ -9,7 +9,7 @@ type Saved = { picked?: string; bound: Record<string, string> };
 export function createPicker(key: string, models: readonly Models.Model[]) {
   const listeners = new Set<() => void>();
   const storageKey = key + ":models";
-  let config: Config | undefined;
+  let config: Config.Config | undefined;
   let saved: Saved = { bound: {} };
   let version = 0;
 
@@ -63,10 +63,10 @@ export function createPicker(key: string, models: readonly Models.Model[]) {
     return { bound: Boolean(conversation && saved.bound[conversation]), choose, model: current(), models };
   };
 
-  return { attach: (next: Config) => { config = next; }, take, useModel };
+  return { attach: (next: Config.Config) => { config = next; }, take, useModel };
 }
 
-export function Suggestions(props: { machine: Machine; prefix: string; suggestions: readonly string[] }) {
+export function Suggestions(props: { machine: useMachine.ReturnType; prefix: string; suggestions: readonly string[] }) {
   const { machine, ready, working } = { ...props.machine, machine: props.machine };
 
   return (
